@@ -1,0 +1,46 @@
+
+* markup-parse
+
+[[https://hackage.haskell.org/package/markup-parse][https://img.shields.io/hackage/v/markup-parse.svg]]
+[[https://github.com/tonyday567/markup-parse/actions?query=workflow%3Ahaskell-ci][https://github.com/tonyday567/markup-parse/workflows/haskell-ci/badge.svg]]
+
+~markup-parse~ parses and prints a subset of common XML & HTML data.
+
+#+begin_src haskell :results output
+:r
+:set prompt "> "
+:set -Wno-type-defaults
+:set -Wno-name-shadowing
+:set -XOverloadedStrings
+import Data.Markup
+let x = "ok"
+putStrLn x
+#+end_src
+
+* Prior Art
+
+attoparsec-based
+https://hackage.haskell.org/package/html-parse
+
+event-based
+https://hackage.haskell.org/package/xeno
+
+parsec-based
+https://hackage.haskell.org/package/XMLParser
+
+https://hackage.haskell.org/package/hexml
+
+
+* html parsing
+
+[[https://html.spec.whatwg.org/multipage/syntax.html#elements-2:void-elements-2][HTML Standard]]
+
+self-closing is not a thing in html
+
+void elements
+
+https://developer.mozilla.org/en-US/docs/Glossary/Void_element#self-closing_tags
+
+w3c validator
+
+[[https://stackoverflow.com/questions/3558119/are-non-void-self-closing-tags-valid-in-html5][html - Are (non-void) self-closing tags valid in HTML5? - Stack Overflow]]
