@@ -1,3 +1,3 @@
 packages: markup-parse.cabal
 
--- allow-newer: true
+allow-newer: html-parse:base

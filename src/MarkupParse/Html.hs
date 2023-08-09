@@ -18,6 +18,7 @@ import Data.Bool
 import Control.Monad
 import Data.List qualified as List
 import Data.Tree
+import Control.DeepSeq
 
 -- Section numbers refer to W3C HTML 5.2 specification.
 
@@ -48,13 +49,17 @@ data Token
   | Doctype !ByteString
   deriving (Show, Ord, Eq, Generic)
 
+instance NFData Token
+
 -- | This is a bit of a hack
 endOfFileToken :: Token
 endOfFileToken = ContentByteString ""
 
 -- | An attribute of a tag
 data Attr = Attr !AttrName !AttrValue
-          deriving (Show, Eq, Ord)
+          deriving (Generic, Show, Eq, Ord)
+
+instance NFData Attr
 
 -- | Parse a single 'Token'.
 token :: Parser e Token

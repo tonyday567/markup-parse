@@ -37,6 +37,7 @@ import NumHask.Space
 import Data.FormatN
 import GHC.Exts
 import Data.Tree
+import Control.DeepSeq
 
 -- $setup
 --
@@ -67,6 +68,8 @@ encodePx = pack . show . (floor :: Double -> Int)
 newtype Attributes = Attributes {attMap :: Map ByteString ByteString} deriving (Eq, Show, Generic)
 
 instance ToExpr Attributes
+
+instance NFData Attributes
 
 -- Like Last for most attributes but concatenates the "class" attribute.
 instance Semigroup Attributes where
@@ -104,6 +107,8 @@ data Markup = Markup
   }
   deriving (Eq, Show, Generic)
 
+instance NFData Markup
+
 instance ToExpr Markup
 
 -- | The things that can be inside (form the Content of) a Markup element, especially in a DOM context. Comments are unused by the library representation of a chart and are here to help with parsing arbitrary svg in the wild.
@@ -111,6 +116,8 @@ instance ToExpr Markup
 data Content = Content ByteString | Comment ByteString | MarkupLeaf Markup deriving (Eq, Show, Generic)
 
 instance ToExpr Content
+
+instance NFData Content
 
 -- | A tag name (e.g. @body@)
 type TagName   = ByteString

@@ -89,6 +89,7 @@ library
     , base >= 4.7 && <5
     , bytestring >=0.11.3 && <0.13
     , flatparse >=0.3.5 && <0.6
+    , deepseq              >=1.4.4 && <1.5
     , text               >=1.2 && <2.1
     , tree-diff          >=0.3 && <0.4
     , numhask-space      >=0.10 && <0.12
@@ -101,3 +102,32 @@ library
     MarkupParse.Common
     MarkupParse.Html
     MarkupParse.Xml
+
+common ghc-options-exe-stanza
+    ghc-options:
+        -fforce-recomp
+        -funbox-strict-fields
+        -rtsopts
+        -threaded
+        -with-rtsopts=-N
+
+executable markup-parse-speed
+    import: ghc-options-exe-stanza
+    import: ghc-options-stanza
+    import: ghc2021-stanza
+    main-is: speed.hs
+    hs-source-dirs: app
+    build-depends:
+        , base                 >=4.7 && <5
+        , containers           >=0.6 && <0.7
+        , deepseq              >=1.4.4 && <1.5
+        , formatn              >=0.2.1 && <0.4
+        , mtl                  >=2.2.2 && <2.4
+        , html-parse
+        , optparse-applicative >=0.17 && <0.19
+        , perf
+        , text                 >=1.2 && <2.1
+        , markup-parse
+        , bytestring
+        , flatparse
+    ghc-options: -O2

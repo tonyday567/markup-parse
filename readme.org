@@ -24,8 +24,7 @@ putStrLn x
 #+end_src
 
 #+RESULTS:
-: [1 of 4] Compiling Data.Markup      ( src/Data/Markup.hs, interpreted ) [Source file changed]
-: [4 of 4] Compiling Data.Markup.Parse.Html ( src/Data/Markup/Parse/Html.hs, interpreted ) [Source file changed]
+: [4 of 4] Compiling MarkupParse.Xml  ( src/MarkupParse/Xml.hs, interpreted ) [Source file changed]
 : Ok, four modules loaded.
 : ok
 
@@ -124,3 +123,28 @@ B.writeFile "/Users/tonyday/haskell/markup-parse/other/line_.svg" $ renderTokens
 #+end_src
 
 #+RESULTS:
+
+
+
+* markupP debug
+
+#+begin_src haskell :results output
+runParser ((,) <$> openTag <*> many contentP) "<foo>Hello World.</foo>"
+runParser closeTag "</foo>"
+#+end_src
+
+#+RESULTS:
+: OK (("foo",[]),[Content "Hello World."]) "</foo>"
+: OK "foo" ""
+
+
+#+begin_src haskell :results output
+runParser selfClosedTag "<foo/>Hello World."
+#+end_src
+
+#+RESULTS:
+: OK (Markup {tag = "foo", atts = Attributes {attMap = fromList []}, contents = []}) "Hello World."
+
+#+begin_src haskell :results output
+runParserEither markupP lineBS
+#+end_src

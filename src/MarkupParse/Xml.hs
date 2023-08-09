@@ -319,7 +319,7 @@ closedTag = do
   cs <- many contentP
   close <- closeTag
   bool
-    (failed `cut'` (Msg "mis-matched tags"))
+    (failed `cut'` (Msg $ "mis-matched tags: open: " <> utf8ToStr n <> " close: " <> utf8ToStr close))
     ( pure (Markup n (mconcat $ attribute <$> as) cs ))
     (n == close)
 
