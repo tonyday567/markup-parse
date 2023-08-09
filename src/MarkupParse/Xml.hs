@@ -11,9 +11,8 @@
 --
 -- As a html parser, it forgives self-closing tags, hence not at standard.
 --
-module Data.Markup.Parse
+module MarkupParse.Xml
   ( markupP,
-    htmlP,
     contentP,
     XmlDocument (..),
     xmlDocument,
@@ -24,37 +23,27 @@ module Data.Markup.Parse
     XmlMisc (..),
     xmlMisc,
     xmlComment,
-    lt,
-    gt,
-    gtc,
-    oct,
-    sq,
-    dq,
-    wrappedQ,
-    wrappedQNoGuard,
-    eq,
     xmlName,
     xmlAtt,
     openTag,
     closeTag,
     emptyElemTag,
-
+    selfClosedTag,
+    closedTag,
     -- * testing
     exampleDocument,
   )
 where
 
-import Data.Markup.FlatParse
-import Data.Markup
+import MarkupParse.Common
+import MarkupParse
   ( Content (..),
     Markup (Markup),
     attribute,
-    voidElements,
   )
 import Data.ByteString (ByteString)
 import Data.String.Interpolate
 import FlatParse.Basic hiding (cut)
-import FlatParse.Basic.Text qualified as T
 import GHC.Generics
 import Prelude
 import Data.Bool
@@ -65,92 +54,11 @@ import Data.Bool
 -- >>> :set -XOverloadedStrings
 -- >>> import Optics.Core
 -- >>> import FlatParse.Basic
--- >>> import Data.Markup.FlatParse
+-- >>> import MarkupParse.Xml
+-- >>> import MarkupParse.Common
 
 -- * special XML chars
 
--- | opening tag
---
--- >>> runParserMaybe lt "<"
--- Just ()
-lt :: Parser e ()
-lt = $(char '<')
-
--- | closing tag char
---
--- >>> runParserMaybe gt ">"
--- Just ()
-gt :: Parser e ()
-gt = $(char '>')
-
--- | self-closing tag
---
--- >>> runParserMaybe gtc "/>"
--- Just ()
-gtc :: Parser e ()
-gtc = $(string "/>")
-
--- | open closer tag
---
--- >>> runParserMaybe oct "</"
--- Just ()
-oct :: Parser e ()
-oct = $(string "</")
-
--- | single quote
---
--- >>> runParserMaybe sq "''"
--- Just ()
-sq :: ParserT st e ()
-sq = $(char '\'')
-
--- | double quote
---
--- >>> runParserMaybe dq "\""
--- Just ()
-dq :: ParserT st e ()
-dq = $(char '"')
-
-wrappedDq :: Parser e ByteString
-wrappedDq = wrapped dq (byteStringOf $ many (T.satisfy (/= '"')))
-
--- | guard check for closing quote
-wrappedSq :: Parser e ByteString
-wrappedSq = wrapped sq (byteStringOf $ many (T.satisfy (/= '\'')))
-
--- | quote or double quote wrapped
---
--- >>> runParserMaybe wrappedQ "\"quoted\""
--- Just "quoted"
---
--- >>> runParserMaybe wrappedQ "'quoted'"
--- Just "quoted"
-wrappedQ :: Parser e ByteString
-wrappedQ =
-  wrappedDq
-    <|> wrappedSq
-
--- | quote or double quote wrapped
---
--- >>> runParserMaybe (wrappedQNoGuard xmlName) "\"name\""
--- Just "name"
---
--- but will consume quotes if the underlying parser does.
---
--- >>> runParserMaybe (wrappedQNoGuard (many anyChar)) "\"name\""
--- Nothing
-wrappedQNoGuard :: Parser e a -> Parser e a
-wrappedQNoGuard p = wrapped dq p <|> wrapped sq p
-
--- | xml production [25]
---
--- >>> runParserMaybe eq " = "
--- Just ()
---
--- >>> runParserMaybe eq "="
--- Just ()
-eq :: Parser e ()
-eq = optional wss *> $(char '=') <* optional wss
 
 -- [4]
 nameStartChar :: Parser e Char
@@ -400,17 +308,6 @@ markupP =
   selfClosedTag <|>
   closedTag
 
--- | Main parser for a single Markup (html-like) element
---
--- >>> runParser htmlP "<foo>Hello World.</foo>"
--- OK (Markup {tag = "foo", atts = Attributes {attMap = fromList []}, contents = [Content "Hello World."]}) ""
-htmlP :: Parser Error Markup
-htmlP =
-   -- html has no self-closing tags but the slash is mostly ignored by parsers
-  selfClosedTag <|>
-  closedTag <|>
-  voidTag
-
 selfClosedTag :: Parser Error Markup
 selfClosedTag = do
   (n,as) <- emptyElemTag
@@ -422,18 +319,9 @@ closedTag = do
   cs <- many contentP
   close <- closeTag
   bool
-    ( pure (Markup n (mconcat $ attribute <$> as) cs ))
     (failed `cut'` (Msg "mis-matched tags"))
-    (n == close)
-
-voidTag :: Parser Error Markup
-voidTag = do
-  (n,as) <- openTag
-  cs <- many contentP
-  bool
     ( pure (Markup n (mconcat $ attribute <$> as) cs ))
-    (failed `cut'` (Msg "non-void element with no closing tag"))
-    (n `elem` voidElements)
+    (n == close)
 
 -- | Inner contents of an element.
 --

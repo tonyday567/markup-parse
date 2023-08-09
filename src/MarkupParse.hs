@@ -3,9 +3,11 @@
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE TypeFamilies #-}
 
--- | An intermediary representation not unlike SVG or XML but only forming a subset of these standards.
-module Data.Markup
-  ( Attributes (..),
+-- | An intermediary representation not unlike HTML, SVG or XML but only forming a subset of these standards.
+module MarkupParse
+  (
+
+    Attributes (..),
     attribute,
     Markup (..),
     Content (..),
@@ -13,15 +15,8 @@ module Data.Markup
     encodeMarkup,
     encodeHtml,
     header,
-    CssOptions (..),
-    defaultCssOptions,
-    CssPreferColorScheme (..),
-    CssShapeRendering (..),
-    MarkupOptions (..),
-    defaultMarkupOptions,
     encodeNum,
     encodePx,
-    markupShapeRendering,
     voidElements,
   )
 where
@@ -41,13 +36,14 @@ import Prelude
 import NumHask.Space
 import Data.FormatN
 import GHC.Exts
+import Data.Tree
 
 -- $setup
 --
 -- >>> :set -XOverloadedLabels
 -- >>> :set -XOverloadedStrings
 -- >>> import Optics.Core
--- >>> import Data.Markup
+-- >>> import MarkupParse
 -- >>> import NumHask.Space
 
 -- | Show a Double, or rounded to 4 decimal places if this is shorter.
@@ -116,6 +112,41 @@ data Content = Content ByteString | Comment ByteString | MarkupLeaf Markup deriv
 
 instance ToExpr Content
 
+-- | A tag name (e.g. @body@)
+type TagName   = ByteString
+
+-- | An attribute name (e.g. @href@)
+type AttrName  = ByteString
+
+-- | The value of an attribute
+type AttrValue = ByteString
+
+-- | An attribute of a tag
+data Attr = Attr !AttrName !AttrValue
+          deriving (Show, Eq, Ord)
+
+-- | A markup token, covering (subsets of) xml, svg and html
+data Token
+  -- | An opening tag. Attribute ordering is arbitrary.
+  = TagOpen !TagName [Attr]
+  -- | A self-closing tag.
+  | TagSelfClose !TagName [Attr]
+  -- | A closing tag.
+  | TagClose !TagName
+  -- | The content between tags.
+  | ContentByteString !ByteString
+  -- | A single character of content
+  | ContentChar !Char
+  -- | Contents of a comment.
+  | CommentToken !ByteString
+  -- | Doctype
+  | Doctype !ByteString
+  deriving (Show, Ord, Eq, Generic)
+
+data MarkupTree = MarkupTree { tokens:: [Tree Token] } deriving (Eq, Show)
+
+
+
 -- | render markup to Text compliant with being an SVG object (and XML element)
 --
 renderMarkup :: Markup -> Text
@@ -178,48 +209,6 @@ header markupheight viewbox content' =
     Point w' h = width viewbox
     Point w'' h' = Point (markupheight / h * w') markupheight
 
--- | Markup options.
---
--- >>> defaultMarkupOptions
--- MarkupOptions {markupHeight = 300.0, cssOptions = CssOptions {shapeRendering = NoShapeRendering, preferColorScheme = PreferHud, cssExtra = ""}}
-data MarkupOptions = MarkupOptions
-  { markupHeight :: Double,
-    cssOptions :: CssOptions
-  }
-  deriving (Eq, Show, Generic)
-
--- | The official markup options
-defaultMarkupOptions :: MarkupOptions
-defaultMarkupOptions = MarkupOptions 300 defaultCssOptions
-
--- | CSS shape rendering options
-data CssShapeRendering = UseGeometricPrecision | UseCssCrisp | NoShapeRendering deriving (Show, Eq, Generic)
-
--- | CSS prefer-color-scheme options
-data CssPreferColorScheme
-  = -- | includes css that switches approriate hud elements between light and dark.
-    PreferHud
-  | PreferDark
-  | PreferLight
-  | PreferNormal
-  deriving (Show, Eq, Generic)
-
--- | css options
---
--- >>> defaultCssOptions
--- CssOptions {shapeRendering = NoShapeRendering, preferColorScheme = PreferHud, cssExtra = ""}
-data CssOptions = CssOptions {shapeRendering :: CssShapeRendering, preferColorScheme :: CssPreferColorScheme, cssExtra :: ByteString} deriving (Show, Eq, Generic)
-
--- | No special shape rendering and default hud responds to user color scheme preferences.
-defaultCssOptions :: CssOptions
-defaultCssOptions = CssOptions NoShapeRendering PreferHud mempty
-
--- | CSS shape rendering text snippet
-markupShapeRendering :: CssShapeRendering -> ByteString
-markupShapeRendering UseGeometricPrecision = "svg { shape-rendering: geometricPrecision; }"
-markupShapeRendering UseCssCrisp = "svg { shape-rendering: crispEdges; }"
-markupShapeRendering NoShapeRendering = mempty
-
 voidElements :: [ByteString]
 voidElements = [
     "area"
@@ -236,3 +225,4 @@ voidElements = [
   , "source"
   , "track"
   , "wbr" ]
+

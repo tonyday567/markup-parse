@@ -97,7 +97,7 @@ library
     , formatn            >=0.2.1 && <0.4
     , containers         >=0.6 && <0.7
   exposed-modules:
-    Data.Markup
-    Data.Markup.Parse
-    Data.Markup.Parse.Html
-    Data.Markup.FlatParse
+    MarkupParse
+    MarkupParse.Common
+    MarkupParse.Html
+    MarkupParse.Xml

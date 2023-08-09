@@ -9,7 +9,7 @@
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
 -- | Lower-level flatparse parsers
-module Data.Markup.FlatParse
+module MarkupParse.Common
   ( runParserMaybe,
     runParserEither,
     runParser_,
@@ -22,9 +22,20 @@ module Data.Markup.FlatParse
     prettyError,
     cut,
     cut',
+    isWhitespace,
+    ws_',
     ws,
     ws_,
     wss,
+    lt,
+    gt,
+    gtc,
+    oct,
+    sq,
+    dq,
+    wrappedQ,
+    wrappedQNoGuard,
+    eq,
     sep,
     comma,
     bracketed,
@@ -49,7 +60,8 @@ import Control.Category ((>>>))
 
 -- $setup
 -- >>> :set -XTemplateHaskell
--- >>> import Data.Markup.FlatParse
+-- >>> import MarkupParse.Common
+-- >>> import MarkupParse.Xml
 -- >>> import FlatParse.Basic
 
 -- * parser error model
@@ -215,6 +227,20 @@ ws_ =
          |]
    )
 
+-- | Equivalent to @inClass "\x09\x0a\x0c "@
+isWhitespace :: Char -> Bool
+isWhitespace '\x09' = True
+isWhitespace '\x0a' = True
+isWhitespace '\x0c' = True
+isWhitespace '\x0d' = True
+isWhitespace ' '    = True
+isWhitespace _      = False
+
+
+-- | consume whitespace
+ws_' :: Parser e ()
+ws_' = many (satisfy isWhitespace) >> pure ()
+
 -- | multiple whitespace
 --
 -- >>> runParser wss " \nx"
@@ -224,6 +250,87 @@ ws_ =
 -- Fail
 wss :: Parser e ByteString
 wss = byteStringOf $ some ws
+
+-- >>> runParserMaybe lt "<"
+-- Just ()
+lt :: Parser e ()
+lt = $(char '<')
+
+-- | closing tag char
+--
+-- >>> runParserMaybe gt ">"
+-- Just ()
+gt :: Parser e ()
+gt = $(char '>')
+
+-- | self-closing tag
+--
+-- >>> runParserMaybe gtc "/>"
+-- Just ()
+gtc :: Parser e ()
+gtc = $(string "/>")
+
+-- | open closer tag
+--
+-- >>> runParserMaybe oct "</"
+-- Just ()
+oct :: Parser e ()
+oct = $(string "</")
+
+-- | single quote
+--
+-- >>> runParserMaybe sq "''"
+-- Just ()
+sq :: ParserT st e ()
+sq = $(char '\'')
+
+-- | double quote
+--
+-- >>> runParserMaybe dq "\""
+-- Just ()
+dq :: ParserT st e ()
+dq = $(char '"')
+
+wrappedDq :: Parser e ByteString
+wrappedDq = wrapped dq (byteStringOf $ many (satisfy (/= '"')))
+
+-- | guard check for closing quote
+wrappedSq :: Parser e ByteString
+wrappedSq = wrapped sq (byteStringOf $ many (satisfy (/= '\'')))
+
+-- | quote or double quote wrapped
+--
+-- >>> runParserMaybe wrappedQ "\"quoted\""
+-- Just "quoted"
+--
+-- >>> runParserMaybe wrappedQ "'quoted'"
+-- Just "quoted"
+wrappedQ :: Parser e ByteString
+wrappedQ =
+  wrappedDq
+    <|> wrappedSq
+
+-- | quote or double quote wrapped
+--
+-- >>> runParserMaybe (wrappedQNoGuard xmlName) "\"name\""
+-- Just "name"
+--
+-- but will consume quotes if the underlying parser does.
+--
+-- >>> runParserMaybe (wrappedQNoGuard (many anyChar)) "\"name\""
+-- Nothing
+wrappedQNoGuard :: Parser e a -> Parser e a
+wrappedQNoGuard p = wrapped dq p <|> wrapped sq p
+
+-- | xml production [25]
+--
+-- >>> runParserMaybe eq " = "
+-- Just ()
+--
+-- >>> runParserMaybe eq "="
+-- Just ()
+eq :: Parser e ()
+eq = optional wss *> $(char '=') <* optional wss
 
 -- | some with a separator
 --

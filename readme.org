@@ -12,10 +12,22 @@
 :set -Wno-type-defaults
 :set -Wno-name-shadowing
 :set -XOverloadedStrings
-import Data.Markup
+import MarkupParse
+import MarkupParse.Html
+import MarkupParse.Xml
+import MarkupParse.Common
+import Data.ByteString qualified as B
+import Data.ByteString.Char8 qualified as C
+import FlatParse.Basic
 let x = "ok"
 putStrLn x
 #+end_src
+
+#+RESULTS:
+: [1 of 4] Compiling Data.Markup      ( src/Data/Markup.hs, interpreted ) [Source file changed]
+: [4 of 4] Compiling Data.Markup.Parse.Html ( src/Data/Markup/Parse/Html.hs, interpreted ) [Source file changed]
+: Ok, four modules loaded.
+: ok
 
 * Prior Art
 
@@ -30,7 +42,6 @@ https://hackage.haskell.org/package/XMLParser
 
 https://hackage.haskell.org/package/hexml
 
-
 * html parsing
 
 [[https://html.spec.whatwg.org/multipage/syntax.html#elements-2:void-elements-2][HTML Standard]]
@@ -44,3 +55,72 @@ https://developer.mozilla.org/en-US/docs/Glossary/Void_element#self-closing_tags
 w3c validator
 
 [[https://stackoverflow.com/questions/3558119/are-non-void-self-closing-tags-valid-in-html5][html - Are (non-void) self-closing tags valid in HTML5? - Stack Overflow]]
+
+tree construction
+
+[[https://www.w3.org/TR/2017/REC-html52-20171214/syntax.html#tree-construction][HTML 5.2: 8. The HTML syntax]]
+
+error handling
+
+[[https://www.w3.org/TR/2017/REC-html52-20171214/syntax.html#an-introduction-to-error-handling-and-strange-cases-in-the-parser][HTML 5.2: 8. The HTML syntax]]
+
+
+* testing
+
+#+RESULTS:
+
+https://www.w3schools.com/html/html_examples.asp
+
+ex1 - classic full html
+
+#+begin_src haskell :results output
+ex1BS <- B.readFile "/Users/tonyday/haskell/markup-parse/other/ex1.html"
+#+end_src
+
+#+RESULTS:
+#+begin_src haskell :results output
+isoNonWhitespace ex1BS
+#+end_src
+
+#+RESULTS:
+: True
+
+
+#+begin_src haskell :results output
+ex1BS == renderTokens (parseTokens ex1BS)
+#+end_src
+
+#+RESULTS:
+: True
+
+#+begin_src haskell :results output
+(==ex1BS) $ renderTokens $ mconcat $ fmap tokensFromTree (either undefined id (tokensToTree (parseTokens ex1BS)))
+#+end_src
+
+#+RESULTS:
+: True
+
+svg
+
+#+begin_src haskell :results output
+lineBS <- B.readFile "/Users/tonyday/haskell/markup-parse/other/line.svg"
+#+end_src
+
+#+RESULTS:
+
+round trip thru bs -> tokens, tokens -> tree, tree -> tokens, tokens -> bs
+
+#+begin_src haskell :results output
+isoNonWhitespace lineBS
+#+end_src
+
+
+#+RESULTS:
+: True
+
+#+begin_src haskell :results output
+B.writeFile "/Users/tonyday/haskell/markup-parse/other/line_.svg" $ renderTokens $ mconcat $ fmap tokensFromTree (either undefined id (tokensToTree (parseTokens lineBS)))
+
+#+end_src
+
+#+RESULTS:

@@ -3,10 +3,10 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 -- |
-module Data.Markup.Parse.Html where
+module MarkupParse.Html where
 
--- import Data.Markup
-import Data.Markup.Parse
+import MarkupParse
+import MarkupParse.Common
 import Data.ByteString.Char8 qualified as B
 import Data.ByteString (ByteString)
 import FlatParse.Basic hiding (cut, take)
@@ -17,6 +17,7 @@ import Data.Char
 import Data.Bool
 import Control.Monad
 import Data.List qualified as List
+import Data.Tree
 
 -- Section numbers refer to W3C HTML 5.2 specification.
 
@@ -80,21 +81,6 @@ tagOpen =
 endTagOpen :: Parser e Token
 endTagOpen = tagNameClose
 
--- | Equivalent to @inClass "\x09\x0a\x0c "@
-isWhitespace :: Char -> Bool
-isWhitespace '\x09' = True
-isWhitespace '\x0a' = True
-isWhitespace '\x0c' = True
-isWhitespace ' '    = True
-isWhitespace _      = False
-
-orC :: (Char -> Bool) -> (Char -> Bool) -> Char -> Bool
-orC f g c = f c || g c
-{-# INLINE orC #-}
-
-isC :: Char -> Char -> Bool
-isC = (==)
-{-# INLINE isC #-}
 
 -- | /§8.2.4.8/: Tag name state: the open case
 --
@@ -102,7 +88,7 @@ isC = (==)
 tagNameOpen :: Parser e Token
 tagNameOpen = do
     tag <- tagName'
-    id $  (satisfy isWhitespace >> beforeAttrName tag [])
+    (satisfy isWhitespace >> beforeAttrName tag [])
       <|> ($(char '/') >> selfClosingStartTag tag [])
       <|> ($(char '>') >> return (TagOpen tag []))
 
@@ -120,7 +106,7 @@ tagName' = do
   byteStringOf (tagNameStartChar >> many (satisfy isNameChar))
 
 tagNameStartChar :: Parser e Char
-tagNameStartChar = fusedSatisfy isAsciiLower isAsciiUpper isAsciiUpper isAsciiUpper
+tagNameStartChar = satisfyAscii (\x -> isLower x || isUpper x)
 
 isNameChar :: Char -> Bool
 isNameChar x =
@@ -141,12 +127,12 @@ selfClosingStartTag tag attrs = do
 --
 -- deviation: no lower-casing
 beforeAttrName :: TagName -> [Attr] -> Parser e Token
-beforeAttrName tag attrs = do
-    skipSatisfy isWhitespace
-    id $  ($(char '/') >> selfClosingStartTag tag attrs)
+beforeAttrName tag attrs =
+    ws_ >>
+    (($(char '/') >> selfClosingStartTag tag attrs)
       <|> ($(char '>') >> return (TagOpen tag attrs))
       -- <|> (char '\x00' >> attrName tag attrs) -- TODO: NULL
-      <|> attrName tag attrs
+      <|> attrName tag attrs)
 
 -- | /§8.2.4.33/: Attribute name state
 attrName :: TagName -> [Attr] -> Parser e Token
@@ -172,9 +158,9 @@ isAttrName x = not $
 
 -- | /§8.2.4.34/: After attribute name state
 afterAttrName :: TagName -> [Attr] -> AttrName -> Parser e Token
-afterAttrName tag attrs name = do
-    skipSatisfy isWhitespace
-    id $  ($(char '/') >> selfClosingStartTag tag attrs)
+afterAttrName tag attrs name =
+    ws_ >>
+    ($(char '/') >> selfClosingStartTag tag attrs)
       <|> ($(char '=') >> beforeAttrValue tag attrs name)
       <|> ($(char '>') >> return (TagOpen tag (Attr name mempty : attrs)))
       <|> (eof >> return endOfFileToken)
@@ -182,9 +168,9 @@ afterAttrName tag attrs name = do
 
 -- | /§8.2.4.35/: Before attribute value state
 beforeAttrValue :: TagName -> [Attr] -> AttrName -> Parser e Token
-beforeAttrValue tag attrs name = do
-    skipSatisfy isWhitespace
-    id $  ($(char '"') >> attrValueDQuoted tag attrs name)
+beforeAttrValue tag attrs name =
+    ws_ >>
+    ($(char '"') >> attrValueDQuoted tag attrs name)
       <|> ($(char '\\') >> attrValueSQuoted tag attrs name)
       <|> ($(char '>') >> return (TagOpen tag (Attr name mempty : attrs)))
       <|> attrValueUnquoted tag attrs name
@@ -260,11 +246,17 @@ commentStartDash =
 -- | /§8.2.4.45/: CommentToken state
 comment :: ByteString -> Parser e Token
 comment content0 = do
-    content <- byteStringOf $ many $ satisfy (not . (isC '-' `orC` isC '\x00' `orC` isC '<'))
+    content <- byteStringOf $ many $ satisfy isCommentChar
     id $  ($(char '<') >> commentLessThan (content0 <> content <> "<"))
       <|> ($(char '-') >> commentEndDash (content0 <> content))
       <|> ($(char '\x00') >> comment (content0 <> content <> B.singleton '\xfffd'))
       <|> (eof >> return (CommentToken $ content0 <> content))
+
+isCommentChar :: Char -> Bool
+isCommentChar x = not $
+  (x=='-') ||
+  (x=='\x00') ||
+  (x=='<')
 
 -- | /§8.2.46/: CommentToken less-than sign state
 commentLessThan :: ByteString -> Parser e Token
@@ -375,3 +367,52 @@ meldByteStringTokens = concatByteStrings . fmap charToByteString
       (ContentByteString t : ContentByteString t' : ts) -> concatByteStrings $ ContentByteString (t <> t') : ts
       (t : ts) -> t : concatByteStrings ts
       [] -> []
+
+tokensToTree :: [Token] -> Either ByteString [Tree Token]
+tokensToTree = f (Stack [] [])
+  where
+    f (Stack ss []) [] = Right (reverse ss)
+    f _ []         = Left "tag mismatch"
+    f pstack (t : ts)   = case t of
+        TagOpen n _     -> if n `elem` voidElements
+                             then f (pushFlatSibling t pstack) ts
+                             else f (pushParent t pstack) ts
+        TagSelfClose {} -> f (pushFlatSibling t pstack) ts
+        TagClose n      -> (`f` ts) =<< popParent n pstack
+        ContentChar _   -> f (pushFlatSibling t pstack) ts
+        ContentByteString _   -> f (pushFlatSibling t pstack) ts
+        CommentToken _       -> f (pushFlatSibling t pstack) ts
+        Doctype _       -> f (pushFlatSibling t pstack) ts
+
+data Stack = Stack
+    { _siblings :: [ Tree Token ]
+    , _parents :: [(Token, [ Tree Token ])]
+    }
+  deriving (Eq, Show)
+
+pushParent :: Token -> Stack -> Stack
+pushParent t (Stack ss ps) = Stack [] ((t, ss) : ps)
+
+popParent :: TagName -> Stack -> Either ByteString Stack
+popParent n (Stack ss ((p@(TagOpen n' _), ss') : ps))
+    | n == n' = Right $ Stack (Node p (reverse ss) : ss') ps
+popParent _ _
+    = Left "tag mismatch"
+
+pushFlatSibling :: Token -> Stack -> Stack
+pushFlatSibling t (Stack ss ps) = Stack (Node t [] : ss) ps
+
+tokensFromForest :: Forest Token -> [Token]
+tokensFromForest = mconcat . fmap tokensFromTree
+
+tokensFromTree :: Tree Token -> [Token]
+tokensFromTree (Node o@(TagOpen n _) ts) | n `notElem` voidElements
+    = [o] <> tokensFromForest ts <> [TagClose n]
+tokensFromTree (Node t [])
+    = [t]
+tokensFromTree _
+    = error "renderTokenTree: leaf node with children."
+
+-- | test round-trip sans whitespace differences
+isoNonWhitespace :: ByteString -> Bool
+isoNonWhitespace bs = (== B.filter (not . isWhitespace) bs) $ B.filter (not . isWhitespace) $ renderTokens $ mconcat $ fmap tokensFromTree (either undefined id (tokensToTree (parseTokens bs)))
