@@ -97,11 +97,10 @@ library
     , string-interpolate >=0.3 && <0.4
     , formatn            >=0.2.1 && <0.4
     , containers         >=0.6 && <0.7
+    , these
   exposed-modules:
     MarkupParse
-    MarkupParse.Common
-    MarkupParse.Html
-    MarkupParse.Xml
+    MarkupParse.FlatParse
 
 common ghc-options-exe-stanza
     ghc-options:
@@ -130,4 +129,25 @@ executable markup-parse-speed
         , markup-parse
         , bytestring
         , flatparse
+    ghc-options: -O2
+
+executable markup-parse-diff
+    import: ghc-options-exe-stanza
+    import: ghc-options-stanza
+    import: ghc2021-stanza
+    main-is: diff.hs
+    hs-source-dirs: app
+    build-depends:
+        , base                 >=4.7 && <5
+        , containers           >=0.6 && <0.7
+        , mtl                  >=2.2.2 && <2.4
+        , optparse-applicative >=0.17 && <0.19
+        , text                 >=1.2 && <2.1
+        , bytestring   >=0.11.3 && <0.13
+        , flatparse    >=0.3.5 && <0.6
+        , tasty        >=1.2 && <1.5
+        , tasty-golden >=2.3.1.1 && <2.4
+        , tree-diff    >=0.3 && <0.4
+        , markup-parse
+        , string-interpolate
     ghc-options: -O2

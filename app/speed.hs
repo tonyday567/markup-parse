@@ -8,29 +8,23 @@ import Data.List (intercalate)
 import Options.Applicative
 import Perf
 import Prelude
-
-import MarkupParse hiding (header)
-import MarkupParse.Html
-import MarkupParse.Xml
-import MarkupParse.Common
+import MarkupParse
 import Data.ByteString qualified as B
 import Text.HTML.Parser qualified as HP
 import Text.HTML.Tree qualified as HP
-import Data.Text qualified as Text
 import Data.Text.IO qualified as Text
 
 data RunType = RunDefault deriving (Eq, Show)
 
 data Options = Options
   { optionN :: Int,
-    optionLength :: Int,
     optionStatDType :: StatDType,
     optionRunType :: RunType,
     optionMeasureType :: MeasureType,
-    optionExample :: Example,
     optionGolden :: Golden,
     optionReportConfig :: ReportConfig,
-    optionRawStats :: Bool
+    optionRawStats :: Bool,
+    optionFile :: FilePath
   }
   deriving (Eq, Show)
 
@@ -42,15 +36,14 @@ parseRun =
 options :: Parser Options
 options =
   Options
-    <$> option auto (value 1000 <> long "runs" <> short 'n' <> help "number of runs to perform")
-    <*> option auto (value 1000 <> long "length" <> short 'l' <> help "length of list")
+    <$> option auto (value 1 <> long "runs" <> short 'n' <> help "number of runs to perform")
     <*> parseStatD
     <*> parseRun
     <*> parseMeasure
-    <*> parseExample
     <*> parseGolden "golden"
     <*> parseReportConfig defaultReportConfig
     <*> switch (long "raw" <> short 'w' <> help "write raw statistics to file")
+    <*> strOption (value "other/line.svg" <> long "file" <> short 'f' <> help "file to test")
 
 opts :: ParserInfo Options
 opts =
@@ -62,26 +55,35 @@ main :: IO ()
 main = do
   o <- execParser opts
   let !n = optionN o
-  let !l = optionLength o
   let s = optionStatDType o
-  let a = optionExample o
   let r = optionRunType o
   let mt = optionMeasureType o
-  let gold = goldenFromOptions [show r, show n, show l, show mt] (optionGolden o)
+  let gold = goldenFromOptions [show r, show n, show mt] (optionGolden o)
+  let f = optionFile o
   let w = optionRawStats o
   let raw =
         "other/"
-          <> intercalate "-" [show r, show n, show l, show mt]
+          <> intercalate "-" [show r, show n, show mt]
           <> ".map"
   let cfg = optionReportConfig o
 
   case r of
     RunDefault -> do
-      bs <- B.readFile "/Users/tonyday/haskell/markup-parse/other/line.svg"
-      t <- Text.readFile "/Users/tonyday/haskell/markup-parse/other/line.svg"
+      bs <- B.readFile f
+      t <- Text.readFile f
       m <- execPerfT (measureDs mt n) $ void $ do
-        ffap "parseTokens" (tokensToTree . parseTokens) bs
-        ffap "xmlMarkup" (runParserEither markupP) bs
-        ffap "html-parse" (either (const []) id . HP.tokensToForest . HP.parseTokens) t
+        ts' <- ffap "html-parse tokens" HP.parseTokens t
+        _ <- ffap "html-parse tree" (either undefined id . HP.tokensToForest) ts'
+        tsHtml <- either error id <$>
+          ffap "tokenize Html" (tokenize Html) bs
+        _ <- either error id <$>
+          ffap "gather Html" gatherEither tsHtml
+        m <- either error id <$>
+          ffap "markup Html" (markup Html) bs
+        _ <- ffap "normalize" normalize m
+        _ <- ffap "markdown" markdown m
+        _ <- either error id <$>
+          ffap "markup Xml" (markup Xml) bs
+        pure ()
       when w (writeFile raw (show m))
       report cfg gold (measureLabels mt) (statify s m)

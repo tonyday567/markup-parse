@@ -1,4 +1,11 @@
 
+* ToDo markup-parse ToDo
+
+  - [ ] haddocks
+  - [ ] doctests
+  - [ ] try wiki html
+  - [ ] space leak
+
 * markup-parse
 
 [[https://hackage.haskell.org/package/markup-parse][https://img.shields.io/hackage/v/markup-parse.svg]]
@@ -12,34 +19,204 @@
 :set -Wno-type-defaults
 :set -Wno-name-shadowing
 :set -XOverloadedStrings
+import Control.Monad
 import MarkupParse
-import MarkupParse.Html
-import MarkupParse.Xml
-import MarkupParse.Common
+import MarkupParse.FlatParse
 import Data.ByteString qualified as B
 import Data.ByteString.Char8 qualified as C
+import Data.Function
 import FlatParse.Basic
-let x = "ok"
-putStrLn x
+bs <- B.readFile "other/line.svg"
+C.length bs
 #+end_src
 
 #+RESULTS:
-: [4 of 4] Compiling MarkupParse.Xml  ( src/MarkupParse/Xml.hs, interpreted ) [Source file changed]
-: Ok, four modules loaded.
-: ok
+: [2 of 2] Compiling MarkupParse      ( src/MarkupParse.hs, interpreted ) [Source file changed]
+: Ok, two modules loaded.
+: 7554
 
-* Prior Art
+** line example
 
-attoparsec-based
-https://hackage.haskell.org/package/html-parse
+#+begin_src haskell :results output
+length <$> tokenize Html bs
+length <$> tokenize Xml bs
+#+end_src
 
-event-based
-https://hackage.haskell.org/package/xeno
+#+RESULTS:
+: Right 232
+: Right 232
 
-parsec-based
-https://hackage.haskell.org/package/XMLParser
+#+begin_src haskell :results output
+((tokenize Html bs) ==) $ snd . degather Html <$> ((tokenize Html bs) >>= gather)
+#+end_src
 
-https://hackage.haskell.org/package/hexml
+#+RESULTS:
+: True
+
+#+begin_src haskell :results output
+bs & (markup Html >=> markdown >=> markup Html) & (== (markup Html bs))
+#+end_src
+
+#+RESULTS:
+: True
+
+** example 1
+
+#+begin_src haskell :results output
+bs1 <- B.readFile "other/ex1.html"
+#+end_src
+
+#+RESULTS:
+
+#+begin_src haskell :results output
+tokenize Html bs1
+#+end_src
+
+#+RESULTS:
+: Right [Doctype "DOCTYPE html",Content "\n",TagOpen "html" [],Content "\n",TagOpen "body" [],Content "\n\n",TagOpen "h1" [],Content "My First Heading",TagClose "h1",Content "\n\n",TagOpen "p" [],Content "My first paragraph.",TagClose "p",Content "\n\n",TagClose "body",Content "\n",TagClose "html",Content "\n"]
+
+#+begin_src haskell :results output
+(tokenize Html bs1) >>= gather
+#+end_src
+
+#+RESULTS:
+: Right [Node {rootLabel = Doctype "DOCTYPE html", subForest = []},Node {rootLabel = Content "\n", subForest = []},Node {rootLabel = TagOpen "html" [], subForest = [Node {rootLabel = Content "\n", subForest = []},Node {rootLabel = TagOpen "body" [], subForest = [Node {rootLabel = Content "\n\n", subForest = []},Node {rootLabel = TagOpen "h1" [], subForest = [Node {rootLabel = Content "My First Heading", subForest = []}]},Node {rootLabel = Content "\n\n", subForest = []},Node {rootLabel = TagOpen "p" [], subForest = [Node {rootLabel = Content "My first paragraph.", subForest = []}]},Node {rootLabel = Content "\n\n", subForest = []}]},Node {rootLabel = Content "\n", subForest = []}]},Node {rootLabel = Content "\n", subForest = []}]
+
+#+begin_src haskell :results output
+bs1 & (markup Html >=> markdown >=> markup Html) & (== (markup Html bs1))
+#+end_src
+
+#+RESULTS:
+: True
+
+** wiki example
+
+#+begin_src haskell :results output
+bs <- B.readFile "other/Parsing - Wikipedia.html"
+#+end_src
+
+#+RESULTS:
+
+#+begin_src haskell :results output
+length <$> tokenize Html bs
+#+end_src
+
+#+RESULTS:
+: Right 5701
+
+#+begin_src haskell :results output
+fst $ gather $ either error id $ tokenize Html bs
+#+end_src
+
+#+RESULTS:
+: []
+
+#+begin_src haskell :results output
+ts = either error id $ tokenize Html bs
+#+end_src
+
+#+RESULTS:
+
+#+begin_src haskell :results output
+drop 5700 [x | x <- ts]
+#+end_src
+
+#+RESULTS:
+: [TagClose "html"]
+
+
+
+** diff
+
+#+begin_src elisp
+(setq haskell-process-args-cabal-repl '("markup-parse:exe:markup-parse-diff"))
+#+end_src
+
+#+RESULTS:
+| markup-parse:exe:markup-parse-diff |
+
+#+begin_src haskell :results output
+printPatchExamples
+#+end_src
+
+#+RESULTS:
+#+begin_example
+"change an attribute name"
+Markup {markupTree = [Node (TagOpen [Attr -"class" +"classx"])]}
+"change an attribute value"
+Markup {markupTree = [Node (TagOpen [Attr -"a" +"b"])]}
+"delete an attribute"
+Markup {markupTree = [Node (TagOpen [-Attr "b" "c"])]}
+"insert an attribute"
+Markup {markupTree = [Node (TagOpen [+Attr "d" "e"])]}
+"change a tag"
+Markup {markupTree = [Node (TagOpen -"top" +"newtop")]}
+"change a markup leaf"
+Markup {markupTree = [Node [Node (TagOpen -"leaf" +"newleaf")]]}
+"delete a leaf"
+Markup {markupTree = [Node [-Node (TagOpen "leaf" []) []]]}
+"insert a leaf"
+Markup {markupTree = [Node [+Node (TagOpen "newleaf" []) []]]}
+"insert attribute"
+Markup {markupTree = [Node [Node (TagOpen [+Attr "class" "a", +Attr "b" "c"])]]}
+"modify content"
+Markup {markupTree = [Node [Node (Content -"text" +"textual content")]]}
+"deep leaf insertion"
+Markup {markupTree = [Node [Node [+Node (TagOpen "newdeepleaf" []) []]]]}
+#+end_example
+
+#+begin_src haskell :results output
+m = either error id $ markup Html bs
+
+#+end_src
+
+#+RESULTS:
+
+
+#+begin_src haskell :results output
+m' = m & markdown & either error id & markup Html & either error id
+#+end_src
+
+#+RESULTS:
+
+#+begin_src haskell :results output
+patch m m'
+#+end_src
+
+#+RESULTS:
+: Nothing
+
+
+
+*** m0
+
+#+begin_src haskell :results output
+m0 = [TagOpen "top" [Attr "class" "a", Attr "b" "c"], TagOpen "leaf" [], TagClose "leaf", Content "text", TagClose "top"]
+#+end_src
+
+#+RESULTS:
+
+#+begin_src haskell :results output
+m0 & gather & either error id & degather Html & snd & (==m0)
+#+end_src
+
+#+RESULTS:
+: True
+
+#+begin_src haskell :results output
+m0 & fmap detokenize & mconcat & tokenize Html & either error id & (==m0)
+#+end_src
+
+#+RESULTS:
+: True
+
+#+begin_src haskell :results output
+m0 & fmap detokenize & mconcat
+#+end_src
+
+#+RESULTS:
+: <top class=\"a\" b=\"c\"><leaf></leaf>text</top>
+
 
 * html parsing
 
@@ -63,8 +240,14 @@ error handling
 
 [[https://www.w3.org/TR/2017/REC-html52-20171214/syntax.html#an-introduction-to-error-handling-and-strange-cases-in-the-parser][HTML 5.2: 8. The HTML syntax]]
 
-
 * testing
+
+{-
+-- | test round-trip sans whitespace differences
+isoNonWhitespace :: ByteString -> Bool
+isoNonWhitespace bs = (== B.filter (not . isWhitespace) bs) $ B.filter (not . isWhitespace) $ renderToken <$> mconcat $ fmap tokensFromTree (either undefined id (tokensToTree (parseTokens bs)))
+
+-}
 
 #+RESULTS:
 
@@ -124,8 +307,6 @@ B.writeFile "/Users/tonyday/haskell/markup-parse/other/line_.svg" $ renderTokens
 
 #+RESULTS:
 
-
-
 * markupP debug
 
 #+begin_src haskell :results output
@@ -146,5 +327,35 @@ runParser selfClosedTag "<foo/>Hello World."
 : OK (Markup {tag = "foo", atts = Attributes {attMap = fromList []}, contents = []}) "Hello World."
 
 #+begin_src haskell :results output
-runParserEither markupP lineBS
+:t runParserEither markupP lineBS
 #+end_src
+
+#+RESULTS:
+: runParserEither markupP lineBS :: Either String Markup
+
+#+begin_src haskell :results output
+:t tokensToTree $ parseTokens lineBS
+#+end_src
+
+#+RESULTS:
+: tokensToTree $ parseTokens lineBS
+:   :: Either ByteString [Tree MarkupParse.Html.Token]
+
+#+begin_src haskell :results output
+:t runParserEither markupP lineBS
+#+end_src
+
+#+RESULTS:
+: runParserEither markupP lineBS :: Either String Markup
+* Prior Art
+
+attoparsec-based
+https://hackage.haskell.org/package/html-parse
+
+event-based
+https://hackage.haskell.org/package/xeno
+
+parsec-based
+https://hackage.haskell.org/package/XMLParser
+
+https://hackage.haskell.org/package/hexml

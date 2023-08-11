@@ -1,0 +1,1 @@
+fromList [(["gather Html","time"],46154.61111073671),(["html-parse tokens","time"],498581.8141918328),(["html-parse tree","time"],23226.802529014378),(["markdown","time"],268100.8307522124),(["markup Html","time"],239348.1018982596),(["markup Xml","time"],237313.30210174355),(["normalize","time"],200347.4),(["tokenize Html","time"],196801.94997826044)]
