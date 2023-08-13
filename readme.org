@@ -19,21 +19,95 @@
 :set -Wno-type-defaults
 :set -Wno-name-shadowing
 :set -XOverloadedStrings
+:set -XTemplateHaskell
+:set -XQuasiQuotes
 import Control.Monad
 import MarkupParse
 import MarkupParse.FlatParse
+import MarkupParse.Patch
 import Data.ByteString qualified as B
 import Data.ByteString.Char8 qualified as C
 import Data.Function
-import FlatParse.Basic
+import FlatParse.Basic hiding (take)
+import Data.String.Interpolate
+import Data.TreeDiff
 bs <- B.readFile "other/line.svg"
 C.length bs
 #+end_src
 
 #+RESULTS:
-: [2 of 2] Compiling MarkupParse      ( src/MarkupParse.hs, interpreted ) [Source file changed]
-: Ok, two modules loaded.
+: [2 of 3] Compiling MarkupParse      ( src/MarkupParse.hs, interpreted ) [Source file changed]
+: Ok, three modules loaded.
+: >
 : 7554
+
+#+begin_src haskell :results output
+ts = tokenize Xml bs
+#+end_src
+
+#+begin_src haskell :results output
+these length (const 0) (\xs _ -> length xs) ts
+#+end_src
+
+#+RESULTS:
+: 1
+
+#+begin_src haskell :results output
+ts' = these (const []) id (\_ xs -> xs) ts
+#+end_src
+
+#+RESULTS:
+
+#+begin_src haskell :results output
+take 100 (gather ts') == take 100 (gather' Html ts')
+#+end_src
+
+#+RESULTS:
+#+begin_example
+<interactive>:212:1: error:
+    Ambiguous occurrence ‘take’
+    It could refer to
+       either ‘Prelude.take’,
+              imported from ‘Prelude’ at src/MarkupParse.hs:65:1-33
+              (and originally defined in ‘GHC.List’)
+           or ‘FlatParse.Basic.take’,
+              imported from ‘FlatParse.Basic’
+              (and originally defined in ‘FlatParse.Basic.Base’)
+
+<interactive>:212:26: error:
+    Ambiguous occurrence ‘take’
+    It could refer to
+       either ‘Prelude.take’,
+              imported from ‘Prelude’ at src/MarkupParse.hs:65:1-33
+              (and originally defined in ‘GHC.List’)
+           or ‘FlatParse.Basic.take’,
+              imported from ‘FlatParse.Basic’
+              (and originally defined in ‘FlatParse.Basic.Base’)
+#+end_example
+
+
+
+#+begin_src haskell :results output
+C.putStr $ markdown (Indented 4) (resultError $ markup Html [i|<foo><br></foo>|])
+#+end_src
+
+#+begin_src haskell :results output
+C.putStr $ markdown Compact $ normalize $ resultError (markup Xml [i|<foo class="a" class="b" bar="first" bar="last"/>|])
+#+end_src
+
+
+#+RESULTS:
+
+#+begin_src haskell :results output
+print $ detokenize Html (StartTag "foo" [])
+#+end_src
+
+#+begin_src haskell :results output
+collapseSiblings (Indented 4) [detokenize Html (StartTag "foo" []), collapseChildren (Indented 4) [detokenize Html (StartTag "br" [])], detokenize Html (EndTag "foo")]
+#+end_src
+
+#+RESULTS:
+: <foo>\n    <br>\n\n</foo>\n
 
 ** line example
 
@@ -73,14 +147,14 @@ tokenize Html bs1
 #+end_src
 
 #+RESULTS:
-: Right [Doctype "DOCTYPE html",Content "\n",TagOpen "html" [],Content "\n",TagOpen "body" [],Content "\n\n",TagOpen "h1" [],Content "My First Heading",TagClose "h1",Content "\n\n",TagOpen "p" [],Content "My first paragraph.",TagClose "p",Content "\n\n",TagClose "body",Content "\n",TagClose "html",Content "\n"]
+: Right [Doctype "DOCTYPE html",Content "\n",StartTag "html" [],Content "\n",StartTag "body" [],Content "\n\n",StartTag "h1" [],Content "My First Heading",EndTag "h1",Content "\n\n",StartTag "p" [],Content "My first paragraph.",EndTag "p",Content "\n\n",EndTag "body",Content "\n",EndTag "html",Content "\n"]
 
 #+begin_src haskell :results output
 (tokenize Html bs1) >>= gather
 #+end_src
 
 #+RESULTS:
-: Right [Node {rootLabel = Doctype "DOCTYPE html", subForest = []},Node {rootLabel = Content "\n", subForest = []},Node {rootLabel = TagOpen "html" [], subForest = [Node {rootLabel = Content "\n", subForest = []},Node {rootLabel = TagOpen "body" [], subForest = [Node {rootLabel = Content "\n\n", subForest = []},Node {rootLabel = TagOpen "h1" [], subForest = [Node {rootLabel = Content "My First Heading", subForest = []}]},Node {rootLabel = Content "\n\n", subForest = []},Node {rootLabel = TagOpen "p" [], subForest = [Node {rootLabel = Content "My first paragraph.", subForest = []}]},Node {rootLabel = Content "\n\n", subForest = []}]},Node {rootLabel = Content "\n", subForest = []}]},Node {rootLabel = Content "\n", subForest = []}]
+: Right [Node {rootLabel = Doctype "DOCTYPE html", subForest = []},Node {rootLabel = Content "\n", subForest = []},Node {rootLabel = StartTag "html" [], subForest = [Node {rootLabel = Content "\n", subForest = []},Node {rootLabel = StartTag "body" [], subForest = [Node {rootLabel = Content "\n\n", subForest = []},Node {rootLabel = StartTag "h1" [], subForest = [Node {rootLabel = Content "My First Heading", subForest = []}]},Node {rootLabel = Content "\n\n", subForest = []},Node {rootLabel = StartTag "p" [], subForest = [Node {rootLabel = Content "My first paragraph.", subForest = []}]},Node {rootLabel = Content "\n\n", subForest = []}]},Node {rootLabel = Content "\n", subForest = []}]},Node {rootLabel = Content "\n", subForest = []}]
 
 #+begin_src haskell :results output
 bs1 & (markup Html >=> markdown >=> markup Html) & (== (markup Html bs1))
@@ -96,6 +170,80 @@ bs <- B.readFile "other/Parsing - Wikipedia.html"
 #+end_src
 
 #+RESULTS:
+
+#+begin_src haskell :results output
+ts = tokenize Xml bs
+#+end_src
+
+#+RESULTS:
+
+#+begin_src haskell :results output
+these length (const 0) (\xs _ -> length xs) ts
+#+end_src
+
+#+RESULTS:
+: 1
+
+#+begin_src haskell :results output
+ts' = these (const []) id (\_ xs -> xs) ts
+#+end_src
+
+#+RESULTS:
+
+#+begin_src haskell :results output
+x1 = mergeTheseWith (const []) id (\_ xs -> xs)
+#+end_src
+
+#+RESULTS:
+
+#+begin_src haskell :results output
+(\x -> show $ ansiWlEditExpr <$> patch (x1 $ gather' Html $ Prelude.take x ts') (x1 $ gather (Prelude.take x ts'))) 1000
+#+end_src
+
+
+#+begin_src haskell :results output
+import Data.TreeDiff
+(\x -> show $ ansiWlEditExpr <$> patch (x1 $ gather' Html $ Prelude.take x ts') (x1 $ gather (Prelude.take x ts'))) 1000
+#+end_src
+
+#+RESULTS:
+: Nothing
+
+#+begin_src haskell :results output
+(x1 $ gather' Html $ Prelude.take 3 ts')
+#+end_src
+
+#+RESULTS:
+: [Node {rootLabel = Doctype "DOCTYPE html", subForest = []},Node {rootLabel = Content "\n", subForest = []},Node {rootLabel = StartTag "html" [Attr "class" "client-nojs vector-feature-language-in-header-enabled vector-feature-language-in-main-page-header-disabled vector-feature-sticky-header-disabled vector-feature-page-tools-pinned-disabled vector-feature-toc-pinned-enabled vector-feature-main-menu-pinned-disabled vector-feature-limited-width-enabled vector-feature-limited-width-content-enabled vector-feature-zebra-design-disabled",Attr "lang" "en",Attr "dir" "ltr"], subForest = []}]
+
+#+begin_src haskell :results output
+(x1 $ gather $ Prelude.take 3 ts')
+#+end_src
+
+#+RESULTS:
+: [Node {rootLabel = Doctype "DOCTYPE html", subForest = []},Node {rootLabel = Content "\n", subForest = []},Node {rootLabel = StartTag "html" [Attr "class" "client-nojs vector-feature-language-in-header-enabled vector-feature-language-in-main-page-header-disabled vector-feature-sticky-header-disabled vector-feature-page-tools-pinned-disabled vector-feature-toc-pinned-enabled vector-feature-main-menu-pinned-disabled vector-feature-limited-width-enabled vector-feature-limited-width-content-enabled vector-feature-zebra-design-disabled",Attr "lang" "en",Attr "dir" "ltr"], subForest = []}]
+
+#+begin_src haskell :results output
+Prelude.take 100 (mergeTheseWith (const []) id (\_ xs -> xs) $ gather ts') == Prelude.take 100 (mergeTheseWith (const []) id (\_ xs -> xs) $ gather' Html ts')
+#+end_src
+
+#+RESULTS:
+: False
+
+#+begin_src haskell :results output
+Prelude.take 2 (mergeTheseWith (const []) id (\_ xs -> xs) $ gather ts')
+#+end_src
+
+#+RESULTS:
+: [Node {rootLabel = Doctype "DOCTYPE html", subForest = []},Node {rootLabel = Content "\n", subForest = []}]
+
+
+#+begin_src haskell :results output
+import MarkupParse.Patch
+patch (mergeTheseWith (const []) id (\_ xs -> xs) $ gather ts') (mergeTheseWith (const []) id (\_ xs -> xs) $ gather' Html ts')
+#+end_src
+
+
 
 #+begin_src haskell :results output
 length <$> tokenize Html bs
@@ -122,8 +270,7 @@ drop 5700 [x | x <- ts]
 #+end_src
 
 #+RESULTS:
-: [TagClose "html"]
-
+: [EndTag "html"]
 
 
 ** diff
@@ -142,27 +289,27 @@ printPatchExamples
 #+RESULTS:
 #+begin_example
 "change an attribute name"
-Markup {markupTree = [Node (TagOpen [Attr -"class" +"classx"])]}
+Markup {markupTree = [Node (StartTag [Attr -"class" +"classx"])]}
 "change an attribute value"
-Markup {markupTree = [Node (TagOpen [Attr -"a" +"b"])]}
+Markup {markupTree = [Node (StartTag [Attr -"a" +"b"])]}
 "delete an attribute"
-Markup {markupTree = [Node (TagOpen [-Attr "b" "c"])]}
+Markup {markupTree = [Node (StartTag [-Attr "b" "c"])]}
 "insert an attribute"
-Markup {markupTree = [Node (TagOpen [+Attr "d" "e"])]}
+Markup {markupTree = [Node (StartTag [+Attr "d" "e"])]}
 "change a tag"
-Markup {markupTree = [Node (TagOpen -"top" +"newtop")]}
+Markup {markupTree = [Node (StartTag -"top" +"newtop")]}
 "change a markup leaf"
-Markup {markupTree = [Node [Node (TagOpen -"leaf" +"newleaf")]]}
+Markup {markupTree = [Node [Node (StartTag -"leaf" +"newleaf")]]}
 "delete a leaf"
-Markup {markupTree = [Node [-Node (TagOpen "leaf" []) []]]}
+Markup {markupTree = [Node [-Node (StartTag "leaf" []) []]]}
 "insert a leaf"
-Markup {markupTree = [Node [+Node (TagOpen "newleaf" []) []]]}
+Markup {markupTree = [Node [+Node (StartTag "newleaf" []) []]]}
 "insert attribute"
-Markup {markupTree = [Node [Node (TagOpen [+Attr "class" "a", +Attr "b" "c"])]]}
+Markup {markupTree = [Node [Node (StartTag [+Attr "class" "a", +Attr "b" "c"])]]}
 "modify content"
 Markup {markupTree = [Node [Node (Content -"text" +"textual content")]]}
 "deep leaf insertion"
-Markup {markupTree = [Node [Node [+Node (TagOpen "newdeepleaf" []) []]]]}
+Markup {markupTree = [Node [Node [+Node (StartTag "newdeepleaf" []) []]]]}
 #+end_example
 
 #+begin_src haskell :results output
@@ -191,7 +338,7 @@ patch m m'
 *** m0
 
 #+begin_src haskell :results output
-m0 = [TagOpen "top" [Attr "class" "a", Attr "b" "c"], TagOpen "leaf" [], TagClose "leaf", Content "text", TagClose "top"]
+m0 = [StartTag "top" [Attr "class" "a", Attr "b" "c"], StartTag "leaf" [], EndTag "leaf", Content "text", EndTag "top"]
 #+end_src
 
 #+RESULTS:
@@ -217,6 +364,124 @@ m0 & fmap detokenize & mconcat
 #+RESULTS:
 : <top class=\"a\" b=\"c\"><leaf></leaf>text</top>
 
+** printing
+
+#+begin_src haskell :results output
+m = either error id $ markup Html bs
+#+end_src
+
+#+begin_src haskell :results output
+:t m
+#+end_src
+
+#+RESULTS:
+: m :: Markup
+
+** doctests
+
+#+begin_src haskell :results output
+:t tokenize Html bs
+:t gather
+:t tokenize Html >=> gather
+#+end_src
+
+#+RESULTS:
+: tokenize Html bs :: These [MarkupWarning] [Token]
+: gather :: [Token] -
+: These [MarkupWarning] [Tree Token]
+: tokenize Html >=
+: gather
+:   :: ByteString -
+: These [MarkupWarning] [Tree Token]
+
+#+begin_src haskell :results output
+:t degather Html
+:t fmap detokenize
+:t degather Html >>> second
+#+end_src
+
+#+RESULTS:
+: degather Html :: [Tree Token] -
+: These [MarkupWarning] [Token]
+: fmap detokenize :: Functor f =
+: f Token -
+: f ByteString
+
+#+begin_src haskell :results output
+runParserWarn (token Xml) "<!-- comment -->"
+#+end_src
+
+#+RESULTS:
+: That (Comment " comment ")
+
+#+begin_src haskell :results output
+markup Html "<!-- comment -->"
+#+end_src
+
+#+RESULTS:
+: That (Markup {standard = Html, markupTree = [Node {rootLabel = Comment " comment ", subForest = []}]})
+
+#+begin_src haskell :results output
+runParser_ (token Xml) "<?xml version=\"1.0\" standalone=\"yes\" ?>"
+#+end_src
+
+#+RESULTS:
+: Decl "xml version=\"1.0\" standalone=\"yes\" "
+
+#+begin_src haskell :results output
+runParser wrappedQ "'name'"
+#+end_src
+
+#+begin_src haskell :results output
+runParser_ (token Xml) [i|<?xml version="1.0" standalone="yes"?>|]
+#+end_src
+
+#+RESULTS:
+: <interactive>:37:40: error: [GHC-58481] parse error on input ‘=’
+
+#+begin_src haskell :results output
+[i| hello |]
+#+end_src
+
+#+RESULTS:
+: <interactive>:43:11: error: [GHC-58481] parse error on input ‘|]’
+
+#+begin_src haskell :results output
+runParser (wrappedQNoGuard (many $ satisfy (/='"'))) "\"'name'\""
+#+end_src
+
+#+begin_src haskell :results output
+resultError $ (tokenize Html) "<foo"
+#+end_src
+
+#+RESULTS:
+: *** Exception: MarkupParser (ParserLeftover "<foo")
+:
+: CallStack (from HasCallStack):
+:   error, called at src/MarkupParse.hs:106:65 in markup-parse-0.0.0.1-inplace:MarkupParse
+
+#+begin_src haskell :results output
+:set -XQuasiQuotes
+import Control.Monad
+normalize =<< (markup Html [i|<foo class="a" class="b" bar="first" bar="last">|])
+#+end_src
+
+#+RESULTS:
+: *** Exception: Prelude.undefined
+: CallStack (from HasCallStack):
+:   undefined, called at src/MarkupParse.hs:160:3 in markup-parse-0.0.0.1-inplace:MarkupParse
+
+#+begin_src haskell :results output
+:t foldTree (\x xs -> Node x xs)
+:t meldContent
+#+end_src
+
+#+RESULTS:
+: foldTree (\x xs -
+: Node x xs) :: Tree a -
+: Tree a
+: meldContent :: [Token] -
+: [Token]
 
 * html parsing
 
@@ -311,7 +576,7 @@ B.writeFile "/Users/tonyday/haskell/markup-parse/other/line_.svg" $ renderTokens
 
 #+begin_src haskell :results output
 runParser ((,) <$> openTag <*> many contentP) "<foo>Hello World.</foo>"
-runParser closeTag "</foo>"
+runParser endTag "</foo>"
 #+end_src
 
 #+RESULTS:

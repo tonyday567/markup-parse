@@ -74,15 +74,15 @@ main = do
       m <- execPerfT (measureDs mt n) $ void $ do
         ts' <- ffap "html-parse tokens" HP.parseTokens t
         _ <- ffap "html-parse tree" (either undefined id . HP.tokensToForest) ts'
-        tsHtml <- either error id <$>
+        tsHtml <- resultError <$>
           ffap "tokenize Html" (tokenize Html) bs
-        _ <- either error id <$>
-          ffap "gather Html" gatherEither tsHtml
-        m <- either error id <$>
+        _ <- resultError <$>
+          ffap "gather Html" gather tsHtml
+        m <- resultError <$>
           ffap "markup Html" (markup Html) bs
         _ <- ffap "normalize" normalize m
-        _ <- ffap "markdown" markdown m
-        _ <- either error id <$>
+        _ <- ffap "markdown" (markdown Compact) m
+        _ <- resultError <$>
           ffap "markup Xml" (markup Xml) bs
         pure ()
       when w (writeFile raw (show m))

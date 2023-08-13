@@ -9,9 +9,12 @@
 -- | Various flatparse helpers and combinators.
 module MarkupParse.FlatParse
   ( -- * parsing
+    ParserWarning (..),
     runParserMaybe,
     runParserEither,
+    runParserWarn,
     runParser_,
+    runParser,
 
     -- * parsers
     isWhitespace,
@@ -29,6 +32,7 @@ module MarkupParse.FlatParse
     eq,
     sep,
     bracketed,
+    bracketedSB,
     wrapped,
     int,
     double,
@@ -43,32 +47,51 @@ import Data.Bool
 import Data.Char hiding (isDigit)
 import GHC.Exts
 import Prelude hiding (replicate)
+import GHC.Generics (Generic)
+import Data.These
+import Control.DeepSeq
 
 -- $setup
 -- >>> :set -XTemplateHaskell
 -- >>> import MarkupParse.FlatParse
+-- >>> import FlatParse.Basic
 
--- | run a Parser, Nothing on failure
+-- | run a Parser, throwing away leftovers. Nothing on 'Fail' or 'Err'.
+--
+-- >>> runParserMaybe ws "x"
+-- Nothing
+--
+-- >>> runParserMaybe ws " x"
+-- Just ' '
 runParserMaybe :: Parser e a -> ByteString -> Maybe a
 runParserMaybe p b = case runParser p b of
   OK r _ -> Just r
   Fail -> Nothing
   Err _ -> Nothing
 
--- | Run parser, Left error on failure.
+-- | run a Parser, throwing away leftovers. Returns Left on 'Fail' or 'Err'.
 runParserEither :: Parser String a -> ByteString -> Either String a
 runParserEither p bs = case runParser p bs of
   Err e -> Left e
   OK a _ -> Right a
   Fail -> Left "uncaught parse error"
 
--- | Run parser, throws an error on failure.
+data ParserWarning = ParserLeftover ByteString | ParserError String | ParserUncaught deriving (Eq, Show, Ord, Generic, NFData)
+
+-- | Run parser, returning leftovers and errors as 'ParserWarning's.
+runParserWarn :: Parser String a -> ByteString -> These ParserWarning a
+runParserWarn p bs = case runParser p bs of
+  Err e -> This (ParserError e)
+  OK a "" -> That a
+  OK a x -> These (ParserLeftover x) a
+  Fail -> This ParserUncaught
+
+-- | Run parser, discards leftovers & throws an error on failure.
 runParser_ :: Parser String a -> ByteString -> a
 runParser_ p bs = case runParser p bs of
   Err e -> error e
   OK a _ -> a
   Fail -> error "uncaught parse error"
-
 
 -- | Consume whitespace.
 --
@@ -156,7 +179,7 @@ wrappedQ =
 
 -- | quote or double quote wrapped
 --
--- >>> runParserMaybe (wrappedQNoGuard xmlName) "\"name\""
+-- >>> runParserMaybe (wrappedQNoGuard (many $ satisfy (/= '"'))) "\"name\""
 -- Just "name"
 --
 -- but will consume quotes if the underlying parser does.
@@ -192,6 +215,9 @@ sep s p = (:) <$> p <*> many (s *> p)
 -- OK "bracketed" ""
 bracketed :: Parser e b -> Parser e b -> Parser e a -> Parser e a
 bracketed o c p = o *> p <* c
+
+bracketedSB :: Parser e [Char]
+bracketedSB = bracketed $(char '[') $(char ']') (many (satisfy (/= ']')))
 
 -- | parser wrapped by another parser
 --

@@ -94,6 +94,9 @@ library
     , tree-diff          >=0.3 && <0.4
     , numhask-space      >=0.10 && <0.12
     , optics-core        >=0.4 && <0.5
+        , tasty        >=1.2 && <1.5
+        , tasty-golden >=2.3.1.1 && <2.4
+        , tree-diff    >=0.3 && <0.4
     , string-interpolate >=0.3 && <0.4
     , formatn            >=0.2.1 && <0.4
     , containers         >=0.6 && <0.7
@@ -101,6 +104,7 @@ library
   exposed-modules:
     MarkupParse
     MarkupParse.FlatParse
+    MarkupParse.Patch
 
 common ghc-options-exe-stanza
     ghc-options:
