@@ -1,8 +1,8 @@
 cabal-version: 3.0
 name:          markup-parse
 version:       0.0.0.1
-synopsis: See readme
-description: See readme for description.
+synopsis: A markup parser.
+description: A markup parser and printer, from and to strict bytestrings, optimised for speed.
 category: project
 author: Tony Day
 maintainer: tonyday567@gmail.com
@@ -112,9 +112,8 @@ common ghc-options-exe-stanza
         -funbox-strict-fields
         -rtsopts
         -threaded
-        -with-rtsopts=-N
 
-executable markup-parse-speed
+benchmark markup-parse-speed
     import: ghc-options-exe-stanza
     import: ghc-options-stanza
     import: ghc2021-stanza
@@ -134,8 +133,9 @@ executable markup-parse-speed
         , bytestring
         , flatparse
     ghc-options: -O2
+    type: exitcode-stdio-1.0
 
-executable markup-parse-diff
+test-suite markup-parse-diff
     import: ghc-options-exe-stanza
     import: ghc-options-stanza
     import: ghc2021-stanza
@@ -154,4 +154,4 @@ executable markup-parse-diff
         , tree-diff    >=0.3 && <0.4
         , markup-parse
         , string-interpolate
-    ghc-options: -O2
+    type: exitcode-stdio-1.0

@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
 
--- | a patch function for tree-diff
+-- | A patch function for <https://hackage.haskell.org/package/tree-diff tree-diff>.
 module MarkupParse.Patch
   ( patch,
     goldenPatch,
@@ -17,6 +17,11 @@ import GHC.Exts
 import Test.Tasty (TestTree)
 import Test.Tasty.Golden.Advanced (goldenTest)
 import Prelude
+
+-- $setup
+-- >>> :set -XOverloadedStrings
+-- >>> import Data.TreeDiff
+-- >>> import MarkupParse.Patch
 
 -- | compare a markup file with a round-trip transformation.
 goldenPatch :: (ToExpr a) => (FilePath -> IO a) -> (a -> a) -> FilePath -> TestTree
@@ -86,6 +91,9 @@ filterChangedEditMap m = case xs' of
     xs' = mapMaybe filterChangedEdit' xs
 
 -- | 'ediff' with unchanged sections filtered out
+--
+-- >>> show $ ansiWlEditExpr <$> patch [1, 2, 3, 5] [0, 1, 2, 4, 6]
+-- "Just [+0, -3, +4, -5, +6]"
 patch :: (ToExpr a) => a -> a -> Maybe (Edit EditExpr)
 patch m m' = filterChangedEdit $ ediff m m'
 

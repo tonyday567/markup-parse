@@ -14,7 +14,7 @@ import Text.HTML.Parser qualified as HP
 import Text.HTML.Tree qualified as HP
 import Data.Text.IO qualified as Text
 
-data RunType = RunDefault deriving (Eq, Show)
+data RunType = RunDefault | RunMarkup deriving (Eq, Show)
 
 data Options = Options
   { optionN :: Int,
@@ -30,7 +30,8 @@ data Options = Options
 
 parseRun :: Parser RunType
 parseRun =
-  flag' RunDefault (long "default" <> help "run default performance test")
+  flag' RunDefault (long "default" <> help "run default performance test") <|>
+  flag' RunMarkup (long "markup" <> short 'm' <> help "run markup performance test")
     <|> pure RunDefault
 
 options :: Parser Options
@@ -75,15 +76,20 @@ main = do
         ts' <- ffap "html-parse tokens" HP.parseTokens t
         _ <- ffap "html-parse tree" (either undefined id . HP.tokensToForest) ts'
         tsHtml <- resultError <$>
-          ffap "tokenize Html" (tokenize Html) bs
+          ffap "tokenize" (tokenize Xml) bs
         _ <- resultError <$>
-          ffap "gather Html" gather tsHtml
+          ffap "gather" (gather Xml) tsHtml
         m <- resultError <$>
-          ffap "markup Html" (markup Html) bs
+          ffap "markup" (markup Xml) bs
         _ <- ffap "normalize" normalize m
         _ <- ffap "markdown" (markdown Compact) m
-        _ <- resultError <$>
-          ffap "markup Xml" (markup Xml) bs
+        pure ()
+      when w (writeFile raw (show m))
+      report cfg gold (measureLabels mt) (statify s m)
+    RunMarkup -> do
+      bs <- B.readFile f
+      m <- execPerfT (measureDs mt n) $ void $ do
+        _ <- fap "markup" (length . markupTree . markup_ Xml) bs
         pure ()
       when w (writeFile raw (show m))
       report cfg gold (measureLabels mt) (statify s m)

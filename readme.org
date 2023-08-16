@@ -1,10 +1,14 @@
 
-* ToDo markup-parse ToDo
+* Next markup-parse ToDo
 
-  - [ ] haddocks
-  - [ ] doctests
-  - [ ] try wiki html
-  - [ ] space leak
+  - [X] haddocks
+    - [X] warnings checked and doc'ed
+  - [X] doctests for flatparse and patch
+  - [X] space leak
+  - [ ] readme cleaned
+  - [ ] ws_', bracketed etc
+  - [ ] refactor to perf-0.12
+  - [ ] record cost center stats
 
 * markup-parse
 
@@ -31,18 +35,158 @@ import Data.Function
 import FlatParse.Basic hiding (take)
 import Data.String.Interpolate
 import Data.TreeDiff
+import Control.Monad
+import Perf
 bs <- B.readFile "other/line.svg"
 C.length bs
 #+end_src
 
 #+RESULTS:
-: [2 of 3] Compiling MarkupParse      ( src/MarkupParse.hs, interpreted ) [Source file changed]
-: Ok, three modules loaded.
-: >
-: 7554
+#+begin_example
+Ok, three modules loaded.
+> > > > > > > > > > > > > > > > >
+<no location info>: error:
+    Could not load module ‘Perf’
+    It is a member of the hidden package ‘perf-0.11.0.0’.
+    Perhaps you need to add ‘perf’ to the build-depends in your .cabal file.
+    It is a member of the hidden package ‘perf-0.11.0.0’.
+    Perhaps you need to add ‘perf’ to the build-depends in your .cabal file.
+    It is a member of the hidden package ‘perf-0.11.0.0’.
+    Perhaps you need to add ‘perf’ to the build-depends in your .cabal file.
+    It is a member of the hidden package ‘perf-0.11.0.0’.
+    Perhaps you need to add ‘perf’ to the build-depends in your .cabal file.
+    It is a member of the hidden package ‘perf-0.11.0.0’.
+    Perhaps you need to add ‘perf’ to the build-depends in your .cabal file.
+    It is a member of the hidden package ‘perf-0.11.0.0’.
+    Perhaps you need to add ‘perf’ to the build-depends in your .cabal file.
+    It is a member of the hidden package ‘perf-0.11.0.0’.
+    Perhaps you need to add ‘perf’ to the build-depends in your .cabal file.
+    It is a member of the hidden package ‘perf-0.10.4’.
+    Perhaps you need to add ‘perf’ to the build-depends in your .cabal file.
+    It is a member of the hidden package ‘perf-0.10.4’.
+    Perhaps you need to add ‘perf’ to the build-depends in your .cabal file.
+    It is a member of the hidden package ‘perf-0.10.4’.
+    Perhaps you need to add ‘perf’ to the build-depends in your .cabal file.
+7554
+#+end_example
+
+#+begin_src haskell :results output
+length $ mconcat $ fmap rootLabel . markupTree . resultError <$> (List.replicate 1000 $ markup Xml bs)
+#+end_src
+
+#+begin_src haskell :results output
+:t execPerfT (measureDs mt n) $ void $ ffap "markup" (length . markupTree . markup_ Xml) bs
+#+end_src
+
+
+#+RESULTS:
+#+begin_example
+<interactive>:1:1: error: [GHC-88464]
+    Variable not in scope: execPerfT :: t3 -> f0 () -> b
+
+<interactive>:1:12: error: [GHC-88464]
+    Variable not in scope: measureDs :: t1 -> t2 -> t3
+
+<interactive>:1:22: error: [GHC-88464]
+    Variable not in scope: mt
+    Suggested fix:
+      Perhaps use one of these:
+        ‘Ghci13.it’ (imported from Ghci13), ‘it’ (line 104)
+
+<interactive>:1:25: error: [GHC-88464] Variable not in scope: n
+
+<interactive>:1:37: error: [GHC-88464]
+    Variable not in scope:
+      ffap :: t0 -> (ByteString -> Int) -> ByteString -> f0 a0
+    Suggested fix: Perhaps use ‘fmap’ (imported from Control.Monad)
+#+end_example
+
+#+begin_src haskell :results output
+runParser wrappedQ [i|"apple"|]
+#+end_src
+
+#+RESULTS:
+: OK "apple" ""
+
+#+begin_src haskell :results output
+runParser ($(char '"') *> (byteStringOf $ many (satisfy (/='"'))) <* $(char '"')) [i|"apple"|]
+#+end_src
+
+#+RESULTS:
+: OK "apple" ""
+
+#+begin_src haskell :results output
+:t tokenize Html
+:t gather Html
+:t Markup Html
+:t normalize
+:t tokenize Html >=> gather Html >>> fmap (Markup Html >>> normalize) >=> degather >>> fmap (fmap (detokenize Html) >>> mconcat)
+:t detokenize Html
+#+end_src
+
+#+RESULTS:
+: tokenize Html :: ByteString -> These [MarkupWarning] [Token]
+: gather Html :: [Token] -> These [MarkupWarning] [Tree Token]
+: Markup Html :: [Tree Token] -> Markup
+: normalize :: Markup -> Markup
+: tokenize Html >=> gather Html >>> fmap (Markup Html >>> normalize) >=> degather >>> fmap (fmap (detokenize Html) >>> mconcat)
+:   :: ByteString -> These [MarkupWarning] ByteString
+: detokenize Html :: Token -> ByteString
+
+
+** patch
+
+#+begin_src haskell :results output
+show $ ansiWlEditExpr <$> patch [1, 2, 3, 5] [0, 1, 2, 4, 6]
+-- show $ ansiWlEditExpr <$> patch (markupTree m) (markupTree $ normalize m)
+#+end_src
+
+#+RESULTS:
+
+** concatContent debug
+
+#+begin_src haskell :results output
+x1 = [Content "a", Content "b", StartTag "foo" [], Content "c", Content "d", StartTag "bar" [], Content "e", Content "", Content "f", EndTag "bar", Content "", EndTag "foo"]
+m = gather_ Html x1
+
+#+end_src
+
+#+RESULTS:
+
+
+#+RESULTS:
+
+#+begin_src haskell :results output
+normContentTrees m
+#+end_src
+
+#+RESULTS:
+: [Node {rootLabel = Content "ab", subForest = []},Node {rootLabel = StartTag "foo" [], subForest = [Node {rootLabel = Content "cd", subForest = []},Node {rootLabel = StartTag "bar" [], subForest = [Node {rootLabel = Content "ef", subForest = []}]}]}]
+
+
+: [Node {rootLabel = Content "ab", subForest = []},Node {rootLabel = StartTag "foo" [], subForest = [Node {rootLabel = Content "cd", subForest = []},Node {rootLabel = StartTag "bar" [], subForest = [Node {rootLabel = Content "ef", subForest = []}]}]}]
+
+#+begin_src haskell :results output
+C.putStr $ markdown (Indented 4) $ markup_ Xml bs
+#+end_src
 
 #+begin_src haskell :results output
 ts = tokenize Xml bs
+#+end_src
+
+#+begin_src haskell :results output
+gather Html =<< tokenize Html "<foo class=\"bar\">baz</foo>"
+#+end_src
+
+#+begin_src haskell :results output
+detokenize Html <$> tokenize_ Html [i|<input checked>|]
+#+end_src
+
+#+RESULTS:
+: ["<input checked=\"\">"]
+
+#+begin_src haskell :results output
+ts >>= gather Xml
 #+end_src
 
 #+begin_src haskell :results output
@@ -57,34 +201,6 @@ ts' = these (const []) id (\_ xs -> xs) ts
 #+end_src
 
 #+RESULTS:
-
-#+begin_src haskell :results output
-take 100 (gather ts') == take 100 (gather' Html ts')
-#+end_src
-
-#+RESULTS:
-#+begin_example
-<interactive>:212:1: error:
-    Ambiguous occurrence ‘take’
-    It could refer to
-       either ‘Prelude.take’,
-              imported from ‘Prelude’ at src/MarkupParse.hs:65:1-33
-              (and originally defined in ‘GHC.List’)
-           or ‘FlatParse.Basic.take’,
-              imported from ‘FlatParse.Basic’
-              (and originally defined in ‘FlatParse.Basic.Base’)
-
-<interactive>:212:26: error:
-    Ambiguous occurrence ‘take’
-    It could refer to
-       either ‘Prelude.take’,
-              imported from ‘Prelude’ at src/MarkupParse.hs:65:1-33
-              (and originally defined in ‘GHC.List’)
-           or ‘FlatParse.Basic.take’,
-              imported from ‘FlatParse.Basic’
-              (and originally defined in ‘FlatParse.Basic.Base’)
-#+end_example
-
 
 
 #+begin_src haskell :results output
@@ -163,7 +279,7 @@ bs1 & (markup Html >=> markdown >=> markup Html) & (== (markup Html bs1))
 #+RESULTS:
 : True
 
-** wiki example
+** wiki contentConcat
 
 #+begin_src haskell :results output
 bs <- B.readFile "other/Parsing - Wikipedia.html"
@@ -172,10 +288,67 @@ bs <- B.readFile "other/Parsing - Wikipedia.html"
 #+RESULTS:
 
 #+begin_src haskell :results output
-ts = tokenize Xml bs
+ts = tokenize Html bs
+#+end_src
+
+#+begin_src haskell :results output
+m = markup_ Html bs
 #+end_src
 
 #+RESULTS:
+
+#+begin_src haskell :results output
+foldTree (\_ xs -> if null xs then 1 else sum xs) <$> (markupTree m)
+#+end_src
+
+#+RESULTS:
+: [1,1,2140]
+
+#+begin_src haskell :results output
+foldTree (\_ xs -> if null xs then 1 else sum xs) <$> (concatContent $ markupTree m)
+#+end_src
+
+#+RESULTS:
+: [1,1,2140]
+
+#+begin_src haskell :results output
+foldTree (\_ xs -> if null xs then 1 else sum xs) <$> (markupTree $ normalize m)
+normalize m == m
+#+end_src
+
+#+RESULTS:
+: [1,1,2140]
+
+show $ ansiWlEditExpr <$> patch (markupTree m) (markupTree $ normalize m)
+
+#+begin_src haskell :results output
+length $ degather_ m
+#+end_src
+
+#+RESULTS:
+: 5701
+
+#+begin_src haskell :results output
+length $ degather_ $ Markup Html (normContentTrees $ markupTree m)
+#+end_src
+
+#+RESULTS:
+: 5701
+
+#+begin_src haskell :results output
+take 200 $ show $ ansiWlEditExpr <$> patch (degather_ m) (degather_ $ Markup Html (normContentTrees $ markupTree m))
+#+end_src
+
+#+RESULTS:
+: Nothing
+
+#+begin_src haskell :results output
+normContentTrees (markupTree m) == markupTree m
+#+end_src
+
+#+RESULTS:
+: True
+
 
 #+begin_src haskell :results output
 these length (const 0) (\xs _ -> length xs) ts
@@ -188,8 +361,127 @@ these length (const 0) (\xs _ -> length xs) ts
 ts' = these (const []) id (\_ xs -> xs) ts
 #+end_src
 
+#+begin_src haskell :results output
+(Left (e:_)) = resultEither ts
+#+end_src
+
+#+RESULTS:
+: <interactive>:581:1: warning: [GHC-62161] [-Wincomplete-uni-patterns]
+:     Pattern match(es) are non-exhaustive
+:     In a pattern binding:
+:         Patterns of type ‘Either [MarkupWarning] [Token]’ not matched:
+:             Right _
+:             Left []
+
+#+begin_src haskell :results output
+((MarkupParser (ParserLeftover bse))) = e
+#+end_src
+
+#+RESULTS:
+: <interactive>:583:1: warning: [GHC-62161] [-Wincomplete-uni-patterns]
+:     Pattern match(es) are non-exhaustive
+:     In a pattern binding:
+:         Patterns of type ‘MarkupWarning’ not matched:
+:             BadEmptyElemTag
+:             SelfCloserWithChildren
+:             LeafWithChildren
+:             TagMismatch _ _
+:             ...
+
+#+begin_src haskell :results output
+B.putStr (B.take 200 bse)
+#+end_src
+
 #+RESULTS:
 
+#+begin_src haskell :results output
+:{
+snipe = [i|<div id="bodyContent" class="vector-body" aria-labelledby="firstHeading" data-mw-ve-target-container>
+<div class="vector-body-before-content">
+<div class="mw-indicators">
+</div> |]
+:}
+#+end_src
+
+#+RESULTS:
+: ghci| ghci| ghci| ghci| ghci|
+
+#+begin_src haskell :results output
+(OK xs left) = runParser (many (token Html)) bse
+#+end_src
+
+#+RESULTS:
+: <interactive>:585:1: warning: [GHC-62161] [-Wincomplete-uni-patterns]
+:     Pattern match(es) are non-exhaustive
+:     In a pattern binding:
+:         Patterns of type ‘FlatParse.Basic.Result
+:                             String [Token]’ not matched:
+:             Fail
+:             Err _
+
+#+begin_src haskell :results output
+B.length left
+#+end_src
+
+#+RESULTS:
+: 0
+
+#+begin_src haskell :results output
+length ts'
+#+end_src
+
+#+RESULTS:
+: 1626
+
+#+begin_src haskell :results output
+length xs
+#+end_src
+
+#+RESULTS:
+: 4075
+
+** ToDo wiki diff test debug
+
+#+begin_src haskell :results output
+bs <- B.readFile "other/Parsing - Wikipedia.html"
+#+end_src
+
+#+RESULTS:
+
+ok via lines:
+
+#+begin_src haskell :results output
+fmap length $ runParserEither (many (token Html)) $ B.unlines $ take 2000 $ B.lines bs
+#+end_src
+
+#+RESULTS:
+: Right 5702
+
+#+begin_src haskell :results output
+length $ B.lines bs
+#+end_src
+
+#+RESULTS:
+: 1083
+
+*** tracing back
+
+#+begin_src haskell :results output
+fmap length $ runParserEither (many (token Html)) $ bs
+#+end_src
+
+#+RESULTS:
+: Right 5701
+
+#+begin_src haskell :results output
+length $ resultError $ tokenize Html bs
+#+end_src
+
+#+RESULTS:
+: 5701
+
+*** ToDo isWellFormed
+** other stuff
 #+begin_src haskell :results output
 x1 = mergeTheseWith (const []) id (\_ xs -> xs)
 #+end_src
@@ -197,8 +489,11 @@ x1 = mergeTheseWith (const []) id (\_ xs -> xs)
 #+RESULTS:
 
 #+begin_src haskell :results output
-(\x -> show $ ansiWlEditExpr <$> patch (x1 $ gather' Html $ Prelude.take x ts') (x1 $ gather (Prelude.take x ts'))) 1000
+show $ ansiWlEditExpr <$> patch (x1 $ gather' Html ts') (x1 $ gather ts')
 #+end_src
+
+#+RESULTS:
+: Nothing
 
 
 #+begin_src haskell :results output
@@ -612,6 +907,7 @@ runParser selfClosedTag "<foo/>Hello World."
 
 #+RESULTS:
 : runParserEither markupP lineBS :: Either String Markup
+
 * Prior Art
 
 attoparsec-based
@@ -624,3 +920,44 @@ parsec-based
 https://hackage.haskell.org/package/XMLParser
 
 https://hackage.haskell.org/package/hexml
+
+* markup-parse performance
+
+Profiling slowed the main functions significantly:
+
+#+begin_example
+./app/speed -n 1000 --best -c +RTS -s -p -hc -l -RTS
+label1              label2              old_result          new_result          status
+
+gather              time                2.08e4              3.01e4              degraded
+html-parse tokens   time                4.70e5              1.72e6              degraded
+html-parse tree     time                2.30e4              3.85e4              degraded
+markdown            time                3.51e5              5.70e5              degraded
+markup              time                2.10e5              1.05e6              degraded
+normalize           time                8.43e4              1.90e5              degraded
+tokenize            time                1.94e5              1.02e6              degraded
+   4,520,989,296 bytes allocated in the heap
+   2,668,887,592 bytes copied during GC
+     287,122,272 bytes maximum residency (21 sample(s))
+       1,572,000 bytes maximum slop
+             560 MiB total memory in use (0 MiB lost due to fragmentation)
+
+                                     Tot time (elapsed)  Avg pause  Max pause
+  Gen  0      1073 colls,     0 par    0.471s   0.479s     0.0004s    0.0024s
+  Gen  1        21 colls,     0 par    2.428s   2.575s     0.1226s    0.3303s
+
+  INIT    time    0.007s  (  0.008s elapsed)
+  MUT     time    2.142s  (  1.945s elapsed)
+  GC      time    1.904s  (  2.071s elapsed)
+  RP      time    0.000s  (  0.000s elapsed)
+  PROF    time    0.995s  (  0.982s elapsed)
+  EXIT    time    0.026s  (  0.000s elapsed)
+  Total   time    5.074s  (  5.006s elapsed)
+
+  %GC     time       0.0%  (0.0% elapsed)
+
+  Alloc rate    2,110,654,040 bytes per MUT second
+
+  Productivity  61.8% of total user, 58.5% of total elapsed
+#+end_example
+
