@@ -1,0 +1,10 @@
+- ignore: {name: Redundant Lambda}
+- ignore: {name: Eta reduce}
+- ignore: {name: Use if}
+- ignore: {name: Use isDigit}
+- ignore: {name: Use isAsciiLower}
+- ignore: {name: Use isAsciiUpper}
+- ignore: {name: Use void}
+- ignore: {name: Use null}
+- ignore: {name: Move brackets to avoid $}
+- ignore: {name: Use notElem}

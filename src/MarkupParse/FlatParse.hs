@@ -208,12 +208,12 @@ byteStringOf' p = withSpan p (\_ s -> unsafeSpanToByteString s)
 
 -- | A single-quoted string.
 wrappedSq :: Parser b ByteString
-wrappedSq = $(char '\'') *> (nota '\'') <* $(char '\'')
+wrappedSq = $(char '\'') *> nota '\'' <* $(char '\'')
 {-# INLINE wrappedSq #-}
 
 -- | A double-quoted string.
 wrappedDq :: Parser b ByteString
-wrappedDq = $(char '"') *> (nota '"') <* $(char '"')
+wrappedDq = $(char '"') *> nota '"' <* $(char '"')
 {-# INLINE wrappedDq #-}
 
 -- | A single-quoted or double-quoted string.

@@ -415,7 +415,7 @@ data RenderStyle = Compact | Indented Int deriving (Eq, Show, Generic)
 indentChildren :: RenderStyle -> [ByteString] -> [ByteString]
 indentChildren Compact = id
 indentChildren (Indented x) =
-  (fmap (B.replicate x ' ' <>))
+  fmap (B.replicate x ' ' <>)
 
 finalConcat :: RenderStyle -> [ByteString] -> ByteString
 finalConcat Compact = mconcat
@@ -437,12 +437,12 @@ markdown r (Markup std tree) =
 renderBranch :: RenderStyle -> Standard -> Token -> [[ByteString]] -> [ByteString]
 renderBranch r std s@(StartTag n _) children
   | n `elem` selfClosers && std == Html =
-      ([detokenize std s] <> indentChildren r (mconcat children))
+      [detokenize std s] <> indentChildren r (mconcat children)
   | otherwise =
-      ([detokenize std s] <> indentChildren r (mconcat children) <> [detokenize std (EndTag n)])
+      [detokenize std s] <> indentChildren r (mconcat children) <> [detokenize std (EndTag n)]
 renderBranch r std x children =
   -- ignoring that this should be an error
-  ([detokenize std x] <> indentChildren r (mconcat children))
+  [detokenize std x] <> indentChildren r (mconcat children)
 
 normContentTrees :: [Tree Token] -> [Tree Token]
 normContentTrees trees = foldTree (\x xs -> Node x (filter ((/= Content "") . rootLabel) $ concatContent xs)) <$> concatContent trees
@@ -463,9 +463,9 @@ gather s ts =
     (sibs, [], []) -> That (reverse sibs)
     ([], [], xs) -> This xs
     (sibs, ps, xs) ->
-      These (xs <> [UnclosedTag]) (reverse $ foldl' (\ss' (p, ss) -> (Node p (reverse ss') : ss)) sibs ps)
+      These (xs <> [UnclosedTag]) (reverse $ foldl' (\ss' (p, ss) -> Node p (reverse ss') : ss) sibs ps)
   where
-    ((Cursor finalSibs finalParents), warnings) =
+    (Cursor finalSibs finalParents, warnings) =
       foldl' (\(c, xs) t -> incCursor s t c & second (maybeToList >>> (<> xs))) (Cursor [] [], []) ts
 
 -- | gather but errors on warnings.
@@ -483,17 +483,17 @@ incCursor Html t@(EmptyElemTag n _) (Cursor ss ps) =
     bool (Just BadEmptyElemTag) Nothing (n `elem` selfClosers)
   )
 incCursor _ (EndTag n) (Cursor ss ((p@(StartTag n' _), ss') : ps)) =
-  ( (Cursor (Node p (reverse ss) : ss') ps),
+  ( Cursor (Node p (reverse ss) : ss') ps,
     bool (Just (TagMismatch n n')) Nothing (n == n')
   )
 -- Non-StartTag on parent list
 incCursor _ (EndTag _) (Cursor ss ((p, ss') : ps)) =
-  ( (Cursor (Node p (reverse ss) : ss') ps),
-    (Just LeafWithChildren)
+  ( Cursor (Node p (reverse ss) : ss') ps,
+    Just LeafWithChildren
   )
 incCursor _ (EndTag _) (Cursor ss []) =
-  ( (Cursor ss []),
-    (Just UnmatchedEndTag)
+  ( Cursor ss [],
+    Just UnmatchedEndTag
   )
 incCursor _ t (Cursor ss ps) = (Cursor (Node t [] : ss) ps, Nothing)
 
@@ -516,7 +516,7 @@ degather_ :: Markup -> [Token]
 degather_ m = degather m & resultError
 
 rconcats :: [Result [a]] -> Result [a]
-rconcats rs = case (bimap mconcat mconcat $ partitionHereThere rs) of
+rconcats rs = case bimap mconcat mconcat $ partitionHereThere rs of
   ([], xs) -> That xs
   (es, []) -> This es
   (es, xs) -> These es xs
@@ -524,11 +524,11 @@ rconcats rs = case (bimap mconcat mconcat $ partitionHereThere rs) of
 addCloseTags :: Standard -> Token -> [These [MarkupWarning] [Token]] -> These [MarkupWarning] [Token]
 addCloseTags std s@(StartTag n _) children
   | children /= [] && n `elem` selfClosers && std == Html =
-      (These [SelfCloserWithChildren] [s]) <> rconcats children
+      These [SelfCloserWithChildren] [s] <> rconcats children
   | n `elem` selfClosers && std == Html =
-      (That [s] <> rconcats children)
+      That [s] <> rconcats children
   | otherwise =
-      (That [s] <> rconcats children <> That [EndTag n])
+      That [s] <> rconcats children <> That [EndTag n]
 addCloseTags _ x xs = case xs of
   [] -> That [x]
   cs -> These [LeafWithChildren] [x] <> rconcats cs
@@ -617,14 +617,13 @@ nameXml = byteStringOf (nameStartChar >> many nameChar)
 declXml :: Parser e Token
 declXml =
   Decl
-    <$> ( byteStringOf $
-            ( $(string "xml")
-                >> xmlVersionInfo
-                >> optional xmlEncodingDecl
-                >> optional xmlStandalone
-                >> ws_
-            )
-        )
+    <$> byteStringOf
+      ( $(string "xml")
+          >> xmlVersionInfo
+          >> optional xmlEncodingDecl
+          >> optional xmlStandalone
+          >> ws_
+      )
     <* $(string "?>")
 
 -- | xml production [24]
@@ -640,16 +639,16 @@ xmlVersionNum =
 doctypeXml :: Parser e Token
 doctypeXml =
   Doctype
-    <$> ( byteStringOf $
-            $(string "DOCTYPE")
-              >> ws_
-              >> nameXml
-              >>
-              -- optional (ws_ >> xmlExternalID) >>
-              ws_
-              >> optional bracketedSB
-              >> ws_
-        )
+    <$> byteStringOf
+      ( $(string "DOCTYPE")
+          >> ws_
+          >> nameXml
+          >>
+          -- optional (ws_ >> xmlExternalID) >>
+          ws_
+          >> optional bracketedSB
+          >> ws_
+      )
     <* $(char '>')
 
 -- | Xml production [32]
@@ -713,12 +712,12 @@ bogusCommentHtml = Comment <$> byteStringOf (some (satisfy (/= '<')))
 doctypeHtml :: Parser e Token
 doctypeHtml =
   Doctype
-    <$> ( byteStringOf $
-            $(string "DOCTYPE")
-              >> ws_
-              >> nameHtml
-              >> ws_
-        )
+    <$> byteStringOf
+      ( $(string "DOCTYPE")
+          >> ws_
+          >> nameHtml
+          >> ws_
+      )
     <* $(char '>')
 
 startTagsHtml :: Parser e Token
@@ -751,8 +750,8 @@ nameStartCharHtml = satisfyAscii isLatinLetter
 
 isNameChar :: Char -> Bool
 isNameChar x =
-  not $
-    ( (isWhitespace x)
+  not
+    ( isWhitespace x
         || (x == '/')
         || (x == '<')
         || (x == '>')
@@ -761,7 +760,7 @@ isNameChar x =
 attrHtml :: Parser e Attr
 attrHtml =
   (Attr <$> (attrName <* eq) <*> (wrappedQ <|> attrBooleanName))
-    <|> ((\n -> Attr n mempty) <$> attrBooleanName)
+    <|> ((`Attr` mempty) <$> attrBooleanName)
 
 attrBooleanName :: Parser e ByteString
 attrBooleanName = byteStringOf $ some (satisfy isBooleanAttrName)
@@ -781,7 +780,7 @@ attrName = isa isAttrName
 isAttrName :: Char -> Bool
 isAttrName x =
   not $
-    (isWhitespace x)
+    isWhitespace x
       || (x == '/')
       || (x == '>')
       || (x == '=')
@@ -789,6 +788,6 @@ isAttrName x =
 isBooleanAttrName :: Char -> Bool
 isBooleanAttrName x =
   not $
-    (isWhitespace x)
+    isWhitespace x
       || (x == '/')
       || (x == '>')

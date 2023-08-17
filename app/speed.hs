@@ -104,7 +104,7 @@ main = do
         _ <- ffap "tokenize" (length . tokenize Xml) bs
         _ <- ffap "gather" (length . gather_ Xml) ts
         _ <- ffap "markup" (length . markupTree . markup_ Xml) bs
-        _ <- ffap "normalize" (normalize) m
+        _ <- ffap "normalize" normalize m
         _ <- ffap "markdown" (markdown Compact) m
         pure ()
 
@@ -170,7 +170,7 @@ fapBSOf = do
 isAttrName :: Char -> Bool
 isAttrName x =
   not $
-    (isWhitespace x)
+    isWhitespace x
       || (x == '/')
       || (x == '>')
       || (x == '=')
@@ -190,15 +190,15 @@ wrappedQSkipSatisfy =
 
 wrappedQNotA :: FP.Parser e B.ByteString
 wrappedQNotA =
-  ($(char '"') *> (nota '"') <* $(char '"'))
-    <|> ($(char '\'') *> (nota '\'') <* $(char '\''))
+  ($(char '"') *> nota '"' <* $(char '"'))
+    <|> ($(char '\'') *> nota '\'' <* $(char '\''))
 
 wrappedQCandidate :: FP.Parser e B.ByteString
 wrappedQCandidate =
   wrappedSQ' <|> wrappedDQ'
 
 wrappedSQ' :: FP.Parser b B.ByteString
-wrappedSQ' = $(char '\'') *> (nota '\'') <* $(char '\'')
+wrappedSQ' = $(char '\'') *> nota '\'' <* $(char '\'')
 
 wrappedDQ' :: FP.Parser b B.ByteString
-wrappedDQ' = $(char '"') *> (nota '"') <* $(char '"')
+wrappedDQ' = $(char '"') *> nota '"' <* $(char '"')
