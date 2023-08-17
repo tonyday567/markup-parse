@@ -30,6 +30,7 @@ module MarkupParse.FlatParse
     bracketed,
     bracketedSB,
     wrapped,
+    digit,
     int,
     double,
     signed,
