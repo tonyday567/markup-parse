@@ -1,6 +1,5 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -207,7 +206,7 @@ markup_ s bs = markup s bs & resultError
 -- | concatenate sequential content, and normalize attributes; unwording class values and removing duplicate attributes (taking last).
 --
 -- >>> B.putStr $ markdown Compact $ normalize (markup_ Xml [i|<foo class="a" class="b" bar="first" bar="last"/>|])
--- <foo bar="last" class="a b"/>"
+-- <foo bar="last" class="a b"/>
 normalize :: Markup -> Markup
 normalize (Markup s trees) = Markup s (normContentTrees $ fmap (fmap normTokenAttrs) trees)
 
