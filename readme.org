@@ -1,21 +1,11 @@
-
-* Next markup-parse ToDo
-
-  - [X] haddocks
-    - [X] warnings checked and doc'ed
-  - [X] doctests for flatparse and patch
-  - [X] space leak
-  - [ ] readme cleaned
-  - [ ] ws_', bracketed etc
-  - [ ] refactor to perf-0.12
-  - [ ] record cost center stats
-
 * markup-parse
 
 [[https://hackage.haskell.org/package/markup-parse][https://img.shields.io/hackage/v/markup-parse.svg]]
 [[https://github.com/tonyday567/markup-parse/actions?query=workflow%3Ahaskell-ci][https://github.com/tonyday567/markup-parse/workflows/haskell-ci/badge.svg]]
 
 ~markup-parse~ parses and prints a subset of common XML & HTML data.
+
+* Development
 
 #+begin_src haskell :results output
 :r
@@ -28,6 +18,7 @@
 import Control.Monad
 import MarkupParse
 import MarkupParse.FlatParse
+import Data.Map.Strict qualified as Map
 import MarkupParse.Patch
 import Data.ByteString qualified as B
 import Data.ByteString.Char8 qualified as C
@@ -36,84 +27,18 @@ import FlatParse.Basic hiding (take)
 import Data.String.Interpolate
 import Data.TreeDiff
 import Control.Monad
-import Perf
+-- import Perf
 bs <- B.readFile "other/line.svg"
 C.length bs
 #+end_src
 
 #+RESULTS:
-#+begin_example
-Ok, three modules loaded.
-> > > > > > > > > > > > > > > > >
-<no location info>: error:
-    Could not load module ‘Perf’
-    It is a member of the hidden package ‘perf-0.11.0.0’.
-    Perhaps you need to add ‘perf’ to the build-depends in your .cabal file.
-    It is a member of the hidden package ‘perf-0.11.0.0’.
-    Perhaps you need to add ‘perf’ to the build-depends in your .cabal file.
-    It is a member of the hidden package ‘perf-0.11.0.0’.
-    Perhaps you need to add ‘perf’ to the build-depends in your .cabal file.
-    It is a member of the hidden package ‘perf-0.11.0.0’.
-    Perhaps you need to add ‘perf’ to the build-depends in your .cabal file.
-    It is a member of the hidden package ‘perf-0.11.0.0’.
-    Perhaps you need to add ‘perf’ to the build-depends in your .cabal file.
-    It is a member of the hidden package ‘perf-0.11.0.0’.
-    Perhaps you need to add ‘perf’ to the build-depends in your .cabal file.
-    It is a member of the hidden package ‘perf-0.11.0.0’.
-    Perhaps you need to add ‘perf’ to the build-depends in your .cabal file.
-    It is a member of the hidden package ‘perf-0.10.4’.
-    Perhaps you need to add ‘perf’ to the build-depends in your .cabal file.
-    It is a member of the hidden package ‘perf-0.10.4’.
-    Perhaps you need to add ‘perf’ to the build-depends in your .cabal file.
-    It is a member of the hidden package ‘perf-0.10.4’.
-    Perhaps you need to add ‘perf’ to the build-depends in your .cabal file.
-7554
-#+end_example
+: Ok, three modules loaded.
+: >
+: >
+: 7554
 
-#+begin_src haskell :results output
-length $ mconcat $ fmap rootLabel . markupTree . resultError <$> (List.replicate 1000 $ markup Xml bs)
-#+end_src
-
-#+begin_src haskell :results output
-:t execPerfT (measureDs mt n) $ void $ ffap "markup" (length . markupTree . markup_ Xml) bs
-#+end_src
-
-
-#+RESULTS:
-#+begin_example
-<interactive>:1:1: error: [GHC-88464]
-    Variable not in scope: execPerfT :: t3 -> f0 () -> b
-
-<interactive>:1:12: error: [GHC-88464]
-    Variable not in scope: measureDs :: t1 -> t2 -> t3
-
-<interactive>:1:22: error: [GHC-88464]
-    Variable not in scope: mt
-    Suggested fix:
-      Perhaps use one of these:
-        ‘Ghci13.it’ (imported from Ghci13), ‘it’ (line 104)
-
-<interactive>:1:25: error: [GHC-88464] Variable not in scope: n
-
-<interactive>:1:37: error: [GHC-88464]
-    Variable not in scope:
-      ffap :: t0 -> (ByteString -> Int) -> ByteString -> f0 a0
-    Suggested fix: Perhaps use ‘fmap’ (imported from Control.Monad)
-#+end_example
-
-#+begin_src haskell :results output
-runParser wrappedQ [i|"apple"|]
-#+end_src
-
-#+RESULTS:
-: OK "apple" ""
-
-#+begin_src haskell :results output
-runParser ($(char '"') *> (byteStringOf $ many (satisfy (/='"'))) <* $(char '"')) [i|"apple"|]
-#+end_src
-
-#+RESULTS:
-: OK "apple" ""
+* Main Pipeline
 
 #+begin_src haskell :results output
 :t tokenize Html
@@ -133,782 +58,50 @@ runParser ($(char '"') *> (byteStringOf $ many (satisfy (/='"'))) <* $(char '"')
 :   :: ByteString -> These [MarkupWarning] ByteString
 : detokenize Html :: Token -> ByteString
 
+Round trip equality
 
-** patch
+#+begin_src haskell :results output
+m = markup_ Xml bs
+m == (markup_ Xml $ markdown Compact m)
+#+end_src
+
+#+RESULTS:
+: True
+
+* MarkupParse.Patch
+
+Obviously doesn't belong here long-term but has been very useful in testing and development.
 
 #+begin_src haskell :results output
 show $ ansiWlEditExpr <$> patch [1, 2, 3, 5] [0, 1, 2, 4, 6]
--- show $ ansiWlEditExpr <$> patch (markupTree m) (markupTree $ normalize m)
 #+end_src
 
 #+RESULTS:
+: Just [+0, -3, +4, -5, +6]
 
-** concatContent debug
-
-#+begin_src haskell :results output
-x1 = [Content "a", Content "b", StartTag "foo" [], Content "c", Content "d", StartTag "bar" [], Content "e", Content "", Content "f", EndTag "bar", Content "", EndTag "foo"]
-m = gather_ Html x1
-
-#+end_src
-
-#+RESULTS:
-
-
-#+RESULTS:
-
-#+begin_src haskell :results output
-normContentTrees m
-#+end_src
-
-#+RESULTS:
-: [Node {rootLabel = Content "ab", subForest = []},Node {rootLabel = StartTag "foo" [], subForest = [Node {rootLabel = Content "cd", subForest = []},Node {rootLabel = StartTag "bar" [], subForest = [Node {rootLabel = Content "ef", subForest = []}]}]}]
-
-
-: [Node {rootLabel = Content "ab", subForest = []},Node {rootLabel = StartTag "foo" [], subForest = [Node {rootLabel = Content "cd", subForest = []},Node {rootLabel = StartTag "bar" [], subForest = [Node {rootLabel = Content "ef", subForest = []}]}]}]
-
-#+begin_src haskell :results output
-C.putStr $ markdown (Indented 4) $ markup_ Xml bs
-#+end_src
-
-#+begin_src haskell :results output
-ts = tokenize Xml bs
-#+end_src
-
-#+begin_src haskell :results output
-gather Html =<< tokenize Html "<foo class=\"bar\">baz</foo>"
-#+end_src
-
-#+begin_src haskell :results output
-detokenize Html <$> tokenize_ Html [i|<input checked>|]
-#+end_src
-
-#+RESULTS:
-: ["<input checked=\"\">"]
-
-#+begin_src haskell :results output
-ts >>= gather Xml
-#+end_src
-
-#+begin_src haskell :results output
-these length (const 0) (\xs _ -> length xs) ts
-#+end_src
-
-#+RESULTS:
-: 1
-
-#+begin_src haskell :results output
-ts' = these (const []) id (\_ xs -> xs) ts
-#+end_src
-
-#+RESULTS:
-
-
-#+begin_src haskell :results output
-C.putStr $ markdown (Indented 4) (resultError $ markup Html [i|<foo><br></foo>|])
-#+end_src
-
-#+begin_src haskell :results output
-C.putStr $ markdown Compact $ normalize $ resultError (markup Xml [i|<foo class="a" class="b" bar="first" bar="last"/>|])
-#+end_src
-
-
-#+RESULTS:
-
-#+begin_src haskell :results output
-print $ detokenize Html (StartTag "foo" [])
-#+end_src
-
-#+begin_src haskell :results output
-collapseSiblings (Indented 4) [detokenize Html (StartTag "foo" []), collapseChildren (Indented 4) [detokenize Html (StartTag "br" [])], detokenize Html (EndTag "foo")]
-#+end_src
-
-#+RESULTS:
-: <foo>\n    <br>\n\n</foo>\n
-
-** line example
-
-#+begin_src haskell :results output
-length <$> tokenize Html bs
-length <$> tokenize Xml bs
-#+end_src
-
-#+RESULTS:
-: Right 232
-: Right 232
-
-#+begin_src haskell :results output
-((tokenize Html bs) ==) $ snd . degather Html <$> ((tokenize Html bs) >>= gather)
-#+end_src
-
-#+RESULTS:
-: True
-
-#+begin_src haskell :results output
-bs & (markup Html >=> markdown >=> markup Html) & (== (markup Html bs))
-#+end_src
-
-#+RESULTS:
-: True
-
-** example 1
-
-#+begin_src haskell :results output
-bs1 <- B.readFile "other/ex1.html"
-#+end_src
-
-#+RESULTS:
-
-#+begin_src haskell :results output
-tokenize Html bs1
-#+end_src
-
-#+RESULTS:
-: Right [Doctype "DOCTYPE html",Content "\n",StartTag "html" [],Content "\n",StartTag "body" [],Content "\n\n",StartTag "h1" [],Content "My First Heading",EndTag "h1",Content "\n\n",StartTag "p" [],Content "My first paragraph.",EndTag "p",Content "\n\n",EndTag "body",Content "\n",EndTag "html",Content "\n"]
-
-#+begin_src haskell :results output
-(tokenize Html bs1) >>= gather
-#+end_src
-
-#+RESULTS:
-: Right [Node {rootLabel = Doctype "DOCTYPE html", subForest = []},Node {rootLabel = Content "\n", subForest = []},Node {rootLabel = StartTag "html" [], subForest = [Node {rootLabel = Content "\n", subForest = []},Node {rootLabel = StartTag "body" [], subForest = [Node {rootLabel = Content "\n\n", subForest = []},Node {rootLabel = StartTag "h1" [], subForest = [Node {rootLabel = Content "My First Heading", subForest = []}]},Node {rootLabel = Content "\n\n", subForest = []},Node {rootLabel = StartTag "p" [], subForest = [Node {rootLabel = Content "My first paragraph.", subForest = []}]},Node {rootLabel = Content "\n\n", subForest = []}]},Node {rootLabel = Content "\n", subForest = []}]},Node {rootLabel = Content "\n", subForest = []}]
-
-#+begin_src haskell :results output
-bs1 & (markup Html >=> markdown >=> markup Html) & (== (markup Html bs1))
-#+end_src
-
-#+RESULTS:
-: True
-
-** wiki contentConcat
+* wiki diff test debug
 
 #+begin_src haskell :results output
 bs <- B.readFile "other/Parsing - Wikipedia.html"
-#+end_src
-
-#+RESULTS:
-
-#+begin_src haskell :results output
-ts = tokenize Html bs
-#+end_src
-
-#+begin_src haskell :results output
 m = markup_ Html bs
-#+end_src
-
-#+RESULTS:
-
-#+begin_src haskell :results output
-foldTree (\_ xs -> if null xs then 1 else sum xs) <$> (markupTree m)
-#+end_src
-
-#+RESULTS:
-: [1,1,2140]
-
-#+begin_src haskell :results output
-foldTree (\_ xs -> if null xs then 1 else sum xs) <$> (concatContent $ markupTree m)
-#+end_src
-
-#+RESULTS:
-: [1,1,2140]
-
-#+begin_src haskell :results output
-foldTree (\_ xs -> if null xs then 1 else sum xs) <$> (markupTree $ normalize m)
-normalize m == m
-#+end_src
-
-#+RESULTS:
-: [1,1,2140]
-
-show $ ansiWlEditExpr <$> patch (markupTree m) (markupTree $ normalize m)
-
-#+begin_src haskell :results output
-length $ degather_ m
-#+end_src
-
-#+RESULTS:
-: 5701
-
-#+begin_src haskell :results output
-length $ degather_ $ Markup Html (normContentTrees $ markupTree m)
-#+end_src
-
-#+RESULTS:
-: 5701
-
-#+begin_src haskell :results output
-take 200 $ show $ ansiWlEditExpr <$> patch (degather_ m) (degather_ $ Markup Html (normContentTrees $ markupTree m))
-#+end_src
-
-#+RESULTS:
-: Nothing
-
-#+begin_src haskell :results output
-normContentTrees (markupTree m) == markupTree m
+m == (markup_ Html $ markdown Compact m)
 #+end_src
 
 #+RESULTS:
 : True
 
-
-#+begin_src haskell :results output
-these length (const 0) (\xs _ -> length xs) ts
-#+end_src
-
-#+RESULTS:
-: 1
-
-#+begin_src haskell :results output
-ts' = these (const []) id (\_ xs -> xs) ts
-#+end_src
-
-#+begin_src haskell :results output
-(Left (e:_)) = resultEither ts
-#+end_src
-
-#+RESULTS:
-: <interactive>:581:1: warning: [GHC-62161] [-Wincomplete-uni-patterns]
-:     Pattern match(es) are non-exhaustive
-:     In a pattern binding:
-:         Patterns of type ‘Either [MarkupWarning] [Token]’ not matched:
-:             Right _
-:             Left []
-
-#+begin_src haskell :results output
-((MarkupParser (ParserLeftover bse))) = e
-#+end_src
-
-#+RESULTS:
-: <interactive>:583:1: warning: [GHC-62161] [-Wincomplete-uni-patterns]
-:     Pattern match(es) are non-exhaustive
-:     In a pattern binding:
-:         Patterns of type ‘MarkupWarning’ not matched:
-:             BadEmptyElemTag
-:             SelfCloserWithChildren
-:             LeafWithChildren
-:             TagMismatch _ _
-:             ...
-
-#+begin_src haskell :results output
-B.putStr (B.take 200 bse)
-#+end_src
-
-#+RESULTS:
-
-#+begin_src haskell :results output
-:{
-snipe = [i|<div id="bodyContent" class="vector-body" aria-labelledby="firstHeading" data-mw-ve-target-container>
-<div class="vector-body-before-content">
-<div class="mw-indicators">
-</div> |]
-:}
-#+end_src
-
-#+RESULTS:
-: ghci| ghci| ghci| ghci| ghci|
-
-#+begin_src haskell :results output
-(OK xs left) = runParser (many (token Html)) bse
-#+end_src
-
-#+RESULTS:
-: <interactive>:585:1: warning: [GHC-62161] [-Wincomplete-uni-patterns]
-:     Pattern match(es) are non-exhaustive
-:     In a pattern binding:
-:         Patterns of type ‘FlatParse.Basic.Result
-:                             String [Token]’ not matched:
-:             Fail
-:             Err _
-
-#+begin_src haskell :results output
-B.length left
-#+end_src
-
-#+RESULTS:
-: 0
-
-#+begin_src haskell :results output
-length ts'
-#+end_src
-
-#+RESULTS:
-: 1626
-
-#+begin_src haskell :results output
-length xs
-#+end_src
-
-#+RESULTS:
-: 4075
-
-** ToDo wiki diff test debug
-
-#+begin_src haskell :results output
-bs <- B.readFile "other/Parsing - Wikipedia.html"
-#+end_src
-
-#+RESULTS:
-
-ok via lines:
-
-#+begin_src haskell :results output
-fmap length $ runParserEither (many (token Html)) $ B.unlines $ take 2000 $ B.lines bs
-#+end_src
-
-#+RESULTS:
-: Right 5702
-
-#+begin_src haskell :results output
-length $ B.lines bs
-#+end_src
-
-#+RESULTS:
-: 1083
-
-*** tracing back
-
-#+begin_src haskell :results output
-fmap length $ runParserEither (many (token Html)) $ bs
-#+end_src
-
-#+RESULTS:
-: Right 5701
-
-#+begin_src haskell :results output
-length $ resultError $ tokenize Html bs
-#+end_src
-
-#+RESULTS:
-: 5701
-
-*** ToDo isWellFormed
-** other stuff
-#+begin_src haskell :results output
-x1 = mergeTheseWith (const []) id (\_ xs -> xs)
-#+end_src
-
-#+RESULTS:
-
-#+begin_src haskell :results output
-show $ ansiWlEditExpr <$> patch (x1 $ gather' Html ts') (x1 $ gather ts')
-#+end_src
-
-#+RESULTS:
-: Nothing
-
-
-#+begin_src haskell :results output
-import Data.TreeDiff
-(\x -> show $ ansiWlEditExpr <$> patch (x1 $ gather' Html $ Prelude.take x ts') (x1 $ gather (Prelude.take x ts'))) 1000
-#+end_src
-
-#+RESULTS:
-: Nothing
-
-#+begin_src haskell :results output
-(x1 $ gather' Html $ Prelude.take 3 ts')
-#+end_src
-
-#+RESULTS:
-: [Node {rootLabel = Doctype "DOCTYPE html", subForest = []},Node {rootLabel = Content "\n", subForest = []},Node {rootLabel = StartTag "html" [Attr "class" "client-nojs vector-feature-language-in-header-enabled vector-feature-language-in-main-page-header-disabled vector-feature-sticky-header-disabled vector-feature-page-tools-pinned-disabled vector-feature-toc-pinned-enabled vector-feature-main-menu-pinned-disabled vector-feature-limited-width-enabled vector-feature-limited-width-content-enabled vector-feature-zebra-design-disabled",Attr "lang" "en",Attr "dir" "ltr"], subForest = []}]
-
-#+begin_src haskell :results output
-(x1 $ gather $ Prelude.take 3 ts')
-#+end_src
-
-#+RESULTS:
-: [Node {rootLabel = Doctype "DOCTYPE html", subForest = []},Node {rootLabel = Content "\n", subForest = []},Node {rootLabel = StartTag "html" [Attr "class" "client-nojs vector-feature-language-in-header-enabled vector-feature-language-in-main-page-header-disabled vector-feature-sticky-header-disabled vector-feature-page-tools-pinned-disabled vector-feature-toc-pinned-enabled vector-feature-main-menu-pinned-disabled vector-feature-limited-width-enabled vector-feature-limited-width-content-enabled vector-feature-zebra-design-disabled",Attr "lang" "en",Attr "dir" "ltr"], subForest = []}]
-
-#+begin_src haskell :results output
-Prelude.take 100 (mergeTheseWith (const []) id (\_ xs -> xs) $ gather ts') == Prelude.take 100 (mergeTheseWith (const []) id (\_ xs -> xs) $ gather' Html ts')
-#+end_src
-
-#+RESULTS:
-: False
-
-#+begin_src haskell :results output
-Prelude.take 2 (mergeTheseWith (const []) id (\_ xs -> xs) $ gather ts')
-#+end_src
-
-#+RESULTS:
-: [Node {rootLabel = Doctype "DOCTYPE html", subForest = []},Node {rootLabel = Content "\n", subForest = []}]
-
-
-#+begin_src haskell :results output
-import MarkupParse.Patch
-patch (mergeTheseWith (const []) id (\_ xs -> xs) $ gather ts') (mergeTheseWith (const []) id (\_ xs -> xs) $ gather' Html ts')
-#+end_src
-
-
-
-#+begin_src haskell :results output
-length <$> tokenize Html bs
-#+end_src
-
-#+RESULTS:
-: Right 5701
-
-#+begin_src haskell :results output
-fst $ gather $ either error id $ tokenize Html bs
-#+end_src
-
-#+RESULTS:
-: []
-
-#+begin_src haskell :results output
-ts = either error id $ tokenize Html bs
-#+end_src
-
-#+RESULTS:
-
-#+begin_src haskell :results output
-drop 5700 [x | x <- ts]
-#+end_src
-
-#+RESULTS:
-: [EndTag "html"]
-
-
-** diff
-
-#+begin_src elisp
-(setq haskell-process-args-cabal-repl '("markup-parse:exe:markup-parse-diff"))
-#+end_src
-
-#+RESULTS:
-| markup-parse:exe:markup-parse-diff |
-
-#+begin_src haskell :results output
-printPatchExamples
-#+end_src
-
-#+RESULTS:
-#+begin_example
-"change an attribute name"
-Markup {markupTree = [Node (StartTag [Attr -"class" +"classx"])]}
-"change an attribute value"
-Markup {markupTree = [Node (StartTag [Attr -"a" +"b"])]}
-"delete an attribute"
-Markup {markupTree = [Node (StartTag [-Attr "b" "c"])]}
-"insert an attribute"
-Markup {markupTree = [Node (StartTag [+Attr "d" "e"])]}
-"change a tag"
-Markup {markupTree = [Node (StartTag -"top" +"newtop")]}
-"change a markup leaf"
-Markup {markupTree = [Node [Node (StartTag -"leaf" +"newleaf")]]}
-"delete a leaf"
-Markup {markupTree = [Node [-Node (StartTag "leaf" []) []]]}
-"insert a leaf"
-Markup {markupTree = [Node [+Node (StartTag "newleaf" []) []]]}
-"insert attribute"
-Markup {markupTree = [Node [Node (StartTag [+Attr "class" "a", +Attr "b" "c"])]]}
-"modify content"
-Markup {markupTree = [Node [Node (Content -"text" +"textual content")]]}
-"deep leaf insertion"
-Markup {markupTree = [Node [Node [+Node (StartTag "newdeepleaf" []) []]]]}
-#+end_example
-
-#+begin_src haskell :results output
-m = either error id $ markup Html bs
-
-#+end_src
-
-#+RESULTS:
-
-
-#+begin_src haskell :results output
-m' = m & markdown & either error id & markup Html & either error id
-#+end_src
-
-#+RESULTS:
-
-#+begin_src haskell :results output
-patch m m'
-#+end_src
-
-#+RESULTS:
-: Nothing
-
-
-
-*** m0
-
-#+begin_src haskell :results output
-m0 = [StartTag "top" [Attr "class" "a", Attr "b" "c"], StartTag "leaf" [], EndTag "leaf", Content "text", EndTag "top"]
-#+end_src
-
-#+RESULTS:
-
-#+begin_src haskell :results output
-m0 & gather & either error id & degather Html & snd & (==m0)
-#+end_src
-
-#+RESULTS:
-: True
-
-#+begin_src haskell :results output
-m0 & fmap detokenize & mconcat & tokenize Html & either error id & (==m0)
-#+end_src
-
-#+RESULTS:
-: True
-
-#+begin_src haskell :results output
-m0 & fmap detokenize & mconcat
-#+end_src
-
-#+RESULTS:
-: <top class=\"a\" b=\"c\"><leaf></leaf>text</top>
-
-** printing
-
-#+begin_src haskell :results output
-m = either error id $ markup Html bs
-#+end_src
-
-#+begin_src haskell :results output
-:t m
-#+end_src
-
-#+RESULTS:
-: m :: Markup
-
-** doctests
-
-#+begin_src haskell :results output
-:t tokenize Html bs
-:t gather
-:t tokenize Html >=> gather
-#+end_src
-
-#+RESULTS:
-: tokenize Html bs :: These [MarkupWarning] [Token]
-: gather :: [Token] -
-: These [MarkupWarning] [Tree Token]
-: tokenize Html >=
-: gather
-:   :: ByteString -
-: These [MarkupWarning] [Tree Token]
-
-#+begin_src haskell :results output
-:t degather Html
-:t fmap detokenize
-:t degather Html >>> second
-#+end_src
-
-#+RESULTS:
-: degather Html :: [Tree Token] -
-: These [MarkupWarning] [Token]
-: fmap detokenize :: Functor f =
-: f Token -
-: f ByteString
-
-#+begin_src haskell :results output
-runParserWarn (token Xml) "<!-- comment -->"
-#+end_src
-
-#+RESULTS:
-: That (Comment " comment ")
-
-#+begin_src haskell :results output
-markup Html "<!-- comment -->"
-#+end_src
-
-#+RESULTS:
-: That (Markup {standard = Html, markupTree = [Node {rootLabel = Comment " comment ", subForest = []}]})
-
-#+begin_src haskell :results output
-runParser_ (token Xml) "<?xml version=\"1.0\" standalone=\"yes\" ?>"
-#+end_src
-
-#+RESULTS:
-: Decl "xml version=\"1.0\" standalone=\"yes\" "
-
-#+begin_src haskell :results output
-runParser wrappedQ "'name'"
-#+end_src
-
-#+begin_src haskell :results output
-runParser_ (token Xml) [i|<?xml version="1.0" standalone="yes"?>|]
-#+end_src
-
-#+RESULTS:
-: <interactive>:37:40: error: [GHC-58481] parse error on input ‘=’
-
-#+begin_src haskell :results output
-[i| hello |]
-#+end_src
-
-#+RESULTS:
-: <interactive>:43:11: error: [GHC-58481] parse error on input ‘|]’
-
-#+begin_src haskell :results output
-runParser (wrappedQNoGuard (many $ satisfy (/='"'))) "\"'name'\""
-#+end_src
-
-#+begin_src haskell :results output
-resultError $ (tokenize Html) "<foo"
-#+end_src
-
-#+RESULTS:
-: *** Exception: MarkupParser (ParserLeftover "<foo")
-:
-: CallStack (from HasCallStack):
-:   error, called at src/MarkupParse.hs:106:65 in markup-parse-0.0.0.1-inplace:MarkupParse
-
-#+begin_src haskell :results output
-:set -XQuasiQuotes
-import Control.Monad
-normalize =<< (markup Html [i|<foo class="a" class="b" bar="first" bar="last">|])
-#+end_src
-
-#+RESULTS:
-: *** Exception: Prelude.undefined
-: CallStack (from HasCallStack):
-:   undefined, called at src/MarkupParse.hs:160:3 in markup-parse-0.0.0.1-inplace:MarkupParse
-
-#+begin_src haskell :results output
-:t foldTree (\x xs -> Node x xs)
-:t meldContent
-#+end_src
-
-#+RESULTS:
-: foldTree (\x xs -
-: Node x xs) :: Tree a -
-: Tree a
-: meldContent :: [Token] -
-: [Token]
-
-* html parsing
+* Reference
+** Html Standards
 
 [[https://html.spec.whatwg.org/multipage/syntax.html#elements-2:void-elements-2][HTML Standard]]
 
-self-closing is not a thing in html
-
-void elements
-
-https://developer.mozilla.org/en-US/docs/Glossary/Void_element#self-closing_tags
-
-w3c validator
+[[https://developer.mozilla.org/en-US/docs/Glossary/Void_element#self-closing_tags][void elements]]
 
 [[https://stackoverflow.com/questions/3558119/are-non-void-self-closing-tags-valid-in-html5][html - Are (non-void) self-closing tags valid in HTML5? - Stack Overflow]]
 
-tree construction
-
 [[https://www.w3.org/TR/2017/REC-html52-20171214/syntax.html#tree-construction][HTML 5.2: 8. The HTML syntax]]
 
-error handling
-
-[[https://www.w3.org/TR/2017/REC-html52-20171214/syntax.html#an-introduction-to-error-handling-and-strange-cases-in-the-parser][HTML 5.2: 8. The HTML syntax]]
-
-* testing
-
-{-
--- | test round-trip sans whitespace differences
-isoNonWhitespace :: ByteString -> Bool
-isoNonWhitespace bs = (== B.filter (not . isWhitespace) bs) $ B.filter (not . isWhitespace) $ renderToken <$> mconcat $ fmap tokensFromTree (either undefined id (tokensToTree (parseTokens bs)))
-
--}
-
-#+RESULTS:
-
-https://www.w3schools.com/html/html_examples.asp
-
-ex1 - classic full html
-
-#+begin_src haskell :results output
-ex1BS <- B.readFile "/Users/tonyday/haskell/markup-parse/other/ex1.html"
-#+end_src
-
-#+RESULTS:
-#+begin_src haskell :results output
-isoNonWhitespace ex1BS
-#+end_src
-
-#+RESULTS:
-: True
-
-
-#+begin_src haskell :results output
-ex1BS == renderTokens (parseTokens ex1BS)
-#+end_src
-
-#+RESULTS:
-: True
-
-#+begin_src haskell :results output
-(==ex1BS) $ renderTokens $ mconcat $ fmap tokensFromTree (either undefined id (tokensToTree (parseTokens ex1BS)))
-#+end_src
-
-#+RESULTS:
-: True
-
-svg
-
-#+begin_src haskell :results output
-lineBS <- B.readFile "/Users/tonyday/haskell/markup-parse/other/line.svg"
-#+end_src
-
-#+RESULTS:
-
-round trip thru bs -> tokens, tokens -> tree, tree -> tokens, tokens -> bs
-
-#+begin_src haskell :results output
-isoNonWhitespace lineBS
-#+end_src
-
-
-#+RESULTS:
-: True
-
-#+begin_src haskell :results output
-B.writeFile "/Users/tonyday/haskell/markup-parse/other/line_.svg" $ renderTokens $ mconcat $ fmap tokensFromTree (either undefined id (tokensToTree (parseTokens lineBS)))
-
-#+end_src
-
-#+RESULTS:
-
-* markupP debug
-
-#+begin_src haskell :results output
-runParser ((,) <$> openTag <*> many contentP) "<foo>Hello World.</foo>"
-runParser endTag "</foo>"
-#+end_src
-
-#+RESULTS:
-: OK (("foo",[]),[Content "Hello World."]) "</foo>"
-: OK "foo" ""
-
-
-#+begin_src haskell :results output
-runParser selfClosedTag "<foo/>Hello World."
-#+end_src
-
-#+RESULTS:
-: OK (Markup {tag = "foo", atts = Attributes {attMap = fromList []}, contents = []}) "Hello World."
-
-#+begin_src haskell :results output
-:t runParserEither markupP lineBS
-#+end_src
-
-#+RESULTS:
-: runParserEither markupP lineBS :: Either String Markup
-
-#+begin_src haskell :results output
-:t tokensToTree $ parseTokens lineBS
-#+end_src
-
-#+RESULTS:
-: tokensToTree $ parseTokens lineBS
-:   :: Either ByteString [Tree MarkupParse.Html.Token]
-
-#+begin_src haskell :results output
-:t runParserEither markupP lineBS
-#+end_src
-
-#+RESULTS:
-: runParserEither markupP lineBS :: Either String Markup
-
-* Prior Art
+** Prior Art
 
 attoparsec-based
 https://hackage.haskell.org/package/html-parse
@@ -921,7 +114,43 @@ https://hackage.haskell.org/package/XMLParser
 
 https://hackage.haskell.org/package/hexml
 
-* markup-parse performance
+* Performance
+
+Most testing has been via app/speed.hs
+
+#+begin_src elisp
+(setq haskell-process-args-cabal-repl '("markup-parse:bench:markup-parse-speed"))
+#+end_src
+
+#+RESULTS:
+| markup-parse:bench:markup-parse-speed |
+
+** Benchmarks
+
+#+begin_src sh :results output
+cabal run markup-parser-speed
+#+end_src
+
+#+RESULTS:
+
+
+
+** Profiling
+
+#+begin_src sh :results output
+cabal configure --enable-library-profiling --enable-executable-profiling -fprof-auto -fprof --write-ghc-environment-files=always --enable-benchmarks -O2
+#+end_src
+
+cabal.project.local
+
+#+begin_example
+write-ghc-environment-files: always
+ignore-project: False
+flags: +prof +prof-auto
+library-profiling: True
+executable-profiling: True
+#+end_example
+
 
 Profiling slowed the main functions significantly:
 

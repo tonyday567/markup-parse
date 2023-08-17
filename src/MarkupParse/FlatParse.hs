@@ -1,10 +1,10 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
-{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- | Various flatparse helpers and combinators.
 module MarkupParse.FlatParse
@@ -18,17 +18,16 @@ module MarkupParse.FlatParse
     -- * parsers
     isWhitespace,
     ws_,
-    ws_',
     ws,
     wss,
+    nota,
+    isa,
     sq,
     dq,
     wrappedDq,
     wrappedSq,
     wrappedQ,
-    wrappedQ',
     wrappedQNoGuard,
-    unwrappedV,
     eq,
     sep,
     bracketed,
@@ -37,20 +36,20 @@ module MarkupParse.FlatParse
     int,
     double,
     signed,
+    byteStringOf',
   )
-
 where
 
+import Control.DeepSeq
+import Data.Bool
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as B
-import FlatParse.Basic hiding (cut, take)
-import Data.Bool
 import Data.Char hiding (isDigit)
-import GHC.Exts
-import Prelude hiding (replicate)
-import GHC.Generics (Generic)
 import Data.These
-import Control.DeepSeq
+import FlatParse.Basic hiding (cut, take)
+import GHC.Exts
+import GHC.Generics (Generic)
+import Prelude hiding (replicate)
 
 -- $setup
 -- >>> :set -XTemplateHaskell
@@ -74,7 +73,6 @@ runParserMaybe p b = case runParser p b of
 --
 -- >>> runParserEither ws " x"
 -- Right ' '
---
 runParserEither :: Parser String a -> ByteString -> Either String a
 runParserEither p bs = case runParser p bs of
   Err e -> Left e
@@ -144,21 +142,17 @@ ws_ =
            _ -> pure ()
          |]
    )
-
--- | consume whitespace
---
--- TODO: find out which of 'ws_' and 'ws_' is faster.
-ws_' :: Parser e ()
-ws_' = many (satisfy isWhitespace) >> pure ()
+{-# INLINE ws_ #-}
 
 -- | \\n \\t \\f \\r and space
 isWhitespace :: Char -> Bool
-isWhitespace ' '    = True -- \x20 space
+isWhitespace ' ' = True -- \x20 space
 isWhitespace '\x0a' = True -- \n linefeed
 isWhitespace '\x09' = True -- \t tab
 isWhitespace '\x0c' = True -- \f formfeed
 isWhitespace '\x0d' = True -- \r carriage return
-isWhitespace _      = False
+isWhitespace _ = False
+{-# INLINE isWhitespace #-}
 
 -- | single whitespace
 --
@@ -179,7 +173,7 @@ wss = byteStringOf $ some ws
 
 -- | single quote
 --
--- >>> runParserMaybe sq "''"
+-- >>> runParserMaybe sq "'"
 -- Just ()
 sq :: ParserT st e ()
 sq = $(char '\'')
@@ -191,13 +185,36 @@ sq = $(char '\'')
 dq :: ParserT st e ()
 dq = $(char '"')
 
--- | A double-quoted string.
-wrappedDq :: Parser e ByteString
-wrappedDq = wrapped dq (byteStringOf $ many (satisfy (/= '"')))
+-- | Parse whilst not a specific character
+--
+-- >>> runParser (nota 'x') "abcxyz"
+-- OK "abc" "xyz"
+nota :: Char -> Parser e ByteString
+nota c = withSpan (skipMany (satisfy (/= c))) (\() s -> unsafeSpanToByteString s)
+{-# INLINE nota #-}
+
+-- | Parse whilst satisfying a predicate.
+--
+-- >>> runParser (isa (=='x')) "xxxabc"
+-- OK "xxx" "abc"
+isa :: (Char -> Bool) -> Parser e ByteString
+isa p = withSpan (skipMany (satisfy p)) (\() s -> unsafeSpanToByteString s)
+{-# INLINE isa #-}
+
+-- | 'byteStringOf' but using withSpan internally. Doesn't seems faster...
+byteStringOf' :: Parser e a -> Parser e ByteString
+byteStringOf' p = withSpan p (\_ s -> unsafeSpanToByteString s)
+{-# INLINE byteStringOf' #-}
 
 -- | A single-quoted string.
-wrappedSq :: Parser e ByteString
-wrappedSq = wrapped sq (byteStringOf $ many (satisfy (/= '\'')))
+wrappedSq :: Parser b ByteString
+wrappedSq = $(char '\'') *> (nota '\'') <* $(char '\'')
+{-# INLINE wrappedSq #-}
+
+-- | A double-quoted string.
+wrappedDq :: Parser b ByteString
+wrappedDq = $(char '"') *> (nota '"') <* $(char '"')
+{-# INLINE wrappedDq #-}
 
 -- | A single-quoted or double-quoted string.
 --
@@ -210,11 +227,7 @@ wrappedQ :: Parser e ByteString
 wrappedQ =
   wrappedDq
     <|> wrappedSq
-
-wrappedQ' :: Parser e ByteString
-wrappedQ' =
-  ( $(char '"') *> (byteStringOf $ many (satisfy (/='"'))) <* $(char '"') ) <|>
-  ( $(char '\'') *> (byteStringOf $ many (satisfy (/='\''))) <* $(char '\'') )
+{-# INLINE wrappedQ #-}
 
 -- | A single-quoted or double-quoted wrapped parser.
 --
@@ -228,10 +241,6 @@ wrappedQ' =
 wrappedQNoGuard :: Parser e a -> Parser e a
 wrappedQNoGuard p = wrapped dq p <|> wrapped sq p
 
--- | An unwrapped value terminated by a space or a '>'
-unwrappedV :: Parser e ByteString
-unwrappedV = byteStringOf $ many $ satisfy (\c -> isWhitespace c || c == '>')
-
 -- | xml production [25]
 --
 -- >>> runParserMaybe eq " = "
@@ -241,6 +250,7 @@ unwrappedV = byteStringOf $ many $ satisfy (\c -> isWhitespace c || c == '>')
 -- Just ()
 eq :: Parser e ()
 eq = ws_ *> $(char '=') <* ws_
+{-# INLINE eq #-}
 
 -- | some with a separator
 --
@@ -335,4 +345,3 @@ signed p = do
   case m of
     Nothing -> p
     Just () -> negate <$> p
-

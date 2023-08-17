@@ -1,12 +1,12 @@
-{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE TupleSections #-}
 
 -- | A patch function for <https://hackage.haskell.org/package/tree-diff tree-diff>.
 module MarkupParse.Patch
   ( patch,
     goldenPatch,
-   )
+  )
 where
 
 import Data.Foldable
@@ -96,4 +96,3 @@ filterChangedEditMap m = case xs' of
 -- "Just [+0, -3, +4, -5, +6]"
 patch :: (ToExpr a) => a -> a -> Maybe (Edit EditExpr)
 patch m m' = filterChangedEdit $ ediff m m'
-

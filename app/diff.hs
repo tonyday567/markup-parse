@@ -1,22 +1,22 @@
-{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE TupleSections #-}
 {-# OPTIONS_GHC -Wno-unused-top-binds #-}
 
 module Main (main) where
 
-import MarkupParse
-import MarkupParse.Patch
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.Foldable
+import Data.Function
 import Data.Maybe
+import Data.String.Interpolate
 import Data.TreeDiff
+import MarkupParse
+import MarkupParse.Patch
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.Golden.Advanced (goldenTest)
 import Prelude
-import Data.String.Interpolate
-import Data.Function
 
 main :: IO ()
 main =
@@ -27,25 +27,33 @@ main =
       ]
 
 goldenTests :: TestTree
-goldenTests = testGroup "examples" (testExample <$> ["other/line.svg", "other/ex1.html", "other/Parsing - Wikipedia.html"])
+goldenTests =
+  testGroup
+    "examples"
+    ( testExample
+        <$> [ (Xml, "other/line.svg"),
+              (Html, "other/ex1.html"),
+              (Html, "other/Parsing - Wikipedia.html")
+            ]
+    )
 
-testExample :: FilePath -> TestTree
-testExample fp =
+testExample :: (Standard, FilePath) -> TestTree
+testExample (s, fp) =
   goldenTest
     fp
-    (getMarkupFile fp)
-    (isoMarkdownMarkup <$> getMarkupFile fp)
+    (getMarkupFile s fp)
+    (isoMarkdownMarkup s <$> getMarkupFile s fp)
     (\expected actual -> pure (show . ansiWlEditExpr <$> patch expected actual))
     (\_ -> pure ())
 
-getMarkupFile :: FilePath -> IO Markup
-getMarkupFile fp = do
+getMarkupFile :: Standard -> FilePath -> IO Markup
+getMarkupFile s fp = do
   bs <- BS.readFile fp
-  pure $ resultError $ markup Html bs
+  pure $ resultError $ markup s bs
 
 -- round trip markdown >>> markup
-isoMarkdownMarkup :: Markup -> Markup
-isoMarkdownMarkup m = m & markdown Compact & markup Html & resultError
+isoMarkdownMarkup :: Standard -> Markup -> Markup
+isoMarkdownMarkup s m = m & markdown Compact & markup s & resultError
 
 -- patch testing
 printPatchExamples :: IO ()

@@ -12,7 +12,7 @@ import Data.ByteString qualified as B
 
 main :: IO ()
 main = do
-  let !n = 1000
+  let n = 1000
   bs <- B.readFile "other/line.svg"
   m <- execPerfT (measureDs MeasureTime n) $
     void $ ffap "markup" (length . markupTree . markup_ Xml) bs
