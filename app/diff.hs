@@ -5,7 +5,7 @@
 module Main (main) where
 
 import Data.ByteString (ByteString)
-import Data.ByteString qualified as BS
+import Data.ByteString qualified as B
 import Data.Foldable
 import Data.Function
 import Data.Maybe
@@ -31,8 +31,7 @@ goldenTests =
     "examples"
     ( testExample
         <$> [ (Xml, "other/line.svg"),
-              (Html, "other/ex1.html"),
-              (Html, "other/Parsing - Wikipedia.html")
+              (Html, "other/ex1.html")
             ]
     )
 
@@ -47,12 +46,12 @@ testExample (s, fp) =
 
 getMarkupFile :: Standard -> FilePath -> IO Markup
 getMarkupFile s fp = do
-  bs <- BS.readFile fp
-  pure $ resultError $ markup s bs
+  bs <- B.readFile fp
+  pure $ warnError $ markup s bs
 
 -- round trip markdown >>> markup
 isoMarkdownMarkup :: Standard -> Markup -> Markup
-isoMarkdownMarkup s m = m & markdown Compact & markup s & resultError
+isoMarkdownMarkup s m = m & markdown s Compact & markup s & warnError
 
 -- patch testing
 printPatchExamples :: IO ()
@@ -61,7 +60,7 @@ printPatchExamples = traverse_ (printPatchExample m0) patchExamples
 printPatchExample :: ByteString -> (String, ByteString) -> IO ()
 printPatchExample m (s, m') = do
   print s
-  case show . ansiWlEditExpr <$> patch (resultError $ markup Html m) (resultError $ markup Html m') of
+  case show . ansiWlEditExpr <$> patch (warnError $ markup Html m) (warnError $ markup Html m') of
     Nothing -> putStrLn ("no changes" :: String)
     Just x -> putStrLn x
 

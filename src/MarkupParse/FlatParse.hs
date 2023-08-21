@@ -12,6 +12,11 @@ module MarkupParse.FlatParse
     runParserWarn,
     runParser_,
 
+    -- * flatparse re-exports
+    runParser,
+    Parser,
+    Result (..),
+
     -- * parsers
     isWhitespace,
     ws_,
@@ -35,6 +40,7 @@ module MarkupParse.FlatParse
     double,
     signed,
     byteStringOf',
+    comma,
   )
 where
 
@@ -71,7 +77,7 @@ runParserMaybe p b = case runParser p b of
 --
 -- >>> runParserEither ws " x"
 -- Right ' '
-runParserEither :: Parser String a -> ByteString -> Either String a
+runParserEither :: (IsString e) => Parser e a -> ByteString -> Either e a
 runParserEither p bs = case runParser p bs of
   Err e -> Left e
   OK a _ -> Right a
@@ -87,7 +93,7 @@ runParserEither p bs = case runParser p bs of
 --
 -- >>> runParserWarn (ws `cut` "no whitespace") "x"
 -- This (ParserError "no whitespace")
-data ParserWarning = ParserLeftover ByteString | ParserError String | ParserUncaught deriving (Eq, Show, Ord, Generic, NFData)
+data ParserWarning = ParserLeftover ByteString | ParserError ByteString | ParserUncaught deriving (Eq, Show, Ord, Generic, NFData)
 
 -- | Run parser, returning leftovers and errors as 'ParserWarning's.
 --
@@ -99,7 +105,7 @@ data ParserWarning = ParserLeftover ByteString | ParserError String | ParserUnca
 --
 -- >>> runParserWarn ws " x"
 -- These (ParserLeftover "x") ' '
-runParserWarn :: Parser String a -> ByteString -> These ParserWarning a
+runParserWarn :: Parser ByteString a -> ByteString -> These ParserWarning a
 runParserWarn p bs = case runParser p bs of
   Err e -> This (ParserError e)
   OK a "" -> That a
@@ -334,7 +340,7 @@ double = do
 minus :: Parser e ()
 minus = $(char '-')
 
--- |
+-- | Parser for a signed prefix to a number.
 -- >>> runParser (signed double) "-1.234x"
 -- OK (-1.234) "x"
 signed :: (Num b) => Parser e b -> Parser e b
@@ -343,3 +349,7 @@ signed p = do
   case m of
     Nothing -> p
     Just () -> negate <$> p
+
+-- | comma parser
+comma :: Parser e ()
+comma = $(char ',')

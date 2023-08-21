@@ -4,6 +4,7 @@
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE DerivingStrategies #-}
 
 -- | A 'Markup' parser and printer of strict bytestrings. 'Markup' is a representation of data such as HTML, SVG or XML but the parsing is sub-standard.
 module MarkupParse
@@ -17,30 +18,44 @@ module MarkupParse
     RenderStyle (..),
     markdown,
     normalize,
+    normContent,
     wellFormed,
     isWellFormed,
 
     -- * Warnings
     MarkupWarning (..),
-    Result,
-    resultError,
-    resultEither,
-    resultMaybe,
+    Warn,
+    warnError,
+    warnEither,
+    warnMaybe,
+
+    -- * element creation
+    element,
+    element_,
+    elementc,
+    content,
+    contentRaw,
 
     -- * Token components
     TagName,
-    name,
     selfClosers,
+    tag,
+    addAttrs,
+    doctypeHtml,
+    doctypeXml,
     AttrName,
     AttrValue,
     Attr (..),
-    attrs,
+    attrsP,
+    nameP,
 
     -- * Tokens
     Token (..),
     tokenize,
+    escapeChar,
+    escape,
     tokenize_,
-    token,
+    tokenP,
     detokenize,
     gather,
     gather_,
@@ -48,12 +63,19 @@ module MarkupParse
     degather_,
 
     -- * XML specific Parsers
-    xmlVersionInfo,
-    xmlEncodingDecl,
-    xmlStandalone,
-    xmlVersionNum,
-    xmlEncName,
-    xmlYesNo,
+    xmlVersionInfoP,
+    xmlEncodingDeclP,
+    xmlStandaloneP,
+    xmlVersionNumP,
+    xmlEncNameP,
+    xmlYesNoP,
+
+    -- * bytestring support
+    utf8ToStr,
+    strToUtf8,
+
+    -- * Tree support
+    Tree (..),
   )
 where
 
@@ -134,10 +156,27 @@ instance ToExpr Standard
 -- | A 'Tree' list of markup 'Token's
 --
 -- >>> markup Html "<foo class=\"bar\">baz</foo>"
--- That (Markup {standard = Html, markupTree = [Node {rootLabel = StartTag "foo" [Attr "class" "bar"], subForest = [Node {rootLabel = Content "baz", subForest = []}]}]})
-data Markup = Markup {standard :: Standard, markupTree :: [Tree Token]} deriving (Show, Eq, Ord, Generic, NFData)
+-- That (Markup {ttree = [Node {rootLabel = StartTag "foo" [Attr {attrName = "class", attrValue = "bar"}], subForest = [Node {rootLabel = Content "baz", subForest = []}]}]})
+newtype Markup = Markup { ttree :: [Tree Token]}
+  deriving stock (Show, Eq, Ord, Generic)
+  deriving anyclass (NFData, ToExpr)
+  deriving newtype (Semigroup, Monoid)
 
-instance ToExpr Markup
+-- | Escape a single character.
+escapeChar :: Char -> ByteString
+escapeChar '<' = "&lt"
+escapeChar '>' = "&gt"
+escapeChar '&' = "&amp"
+escapeChar '\'' = "&apos"
+escapeChar '"' = "&quot"
+escapeChar x = B.singleton x
+
+-- | Escape Content
+--
+-- >>> escape [i|<foo class="a" bar='b'>|]
+-- "&ltfoo class=&quota&quot bar=&aposb&apos&gt"
+escape :: ByteString -> ByteString
+escape bs = B.concatMap escapeChar bs
 
 -- | markup-parse generally tries to continue on parse errors, and return what has/can still be parsed, together with any warnings.
 data MarkupWarning
@@ -157,69 +196,71 @@ data MarkupWarning
     EndTagInTree
   | -- | Empty Content, Comment, Decl or Doctype
     EmptyContent
+  | -- | Badly formed declaration
+    BadDecl
   | MarkupParser ParserWarning
   deriving (Eq, Show, Ord, Generic, NFData)
 
 showWarnings :: [MarkupWarning] -> String
 showWarnings = List.nub >>> fmap show >>> unlines
 
--- | The structure of many returning functions.
+-- | A synonym for These [MarkupWarning] which is the structure of some functions.
 --
 -- A common computation pipeline is to take advantage of the 'These' Monad instance eg
 --
 -- > markup s bs = bs & (tokenize s >=> gather s) & second (Markup s)
-type Result a = These [MarkupWarning] a
+type Warn a = These [MarkupWarning] a
 
 -- | Convert any warnings to an 'error'
 --
--- >>> resultError $ (tokenize Html) "<foo"
+-- >>> warnError $ (tokenize Html) "<foo"
 -- *** Exception: MarkupParser (ParserLeftover "<foo")
 -- ...
-resultError :: Result a -> a
-resultError = these (showWarnings >>> error) id (\xs a -> bool (error (showWarnings xs)) a (xs == []))
+warnError :: Warn a -> a
+warnError = these (showWarnings >>> error) id (\xs a -> bool (error (showWarnings xs)) a (xs == []))
 
 -- | Returns Left on any warnings
 --
--- >>> resultEither $ (tokenize Html) "<foo><baz"
+-- >>> warnEither $ (tokenize Html) "<foo><baz"
 -- Left [MarkupParser (ParserLeftover "<baz")]
-resultEither :: Result a -> Either [MarkupWarning] a
-resultEither = these Left Right (\xs a -> bool (Left xs) (Right a) (xs == []))
+warnEither :: Warn a -> Either [MarkupWarning] a
+warnEither = these Left Right (\xs a -> bool (Left xs) (Right a) (xs == []))
 
--- | Returns results if any, ignoring warnings.
+-- | Returns results, if any, ignoring warnings.
 --
--- >>> resultMaybe $ (tokenize Html) "<foo><baz"
+-- >>> warnMaybe $ (tokenize Html) "<foo><baz"
 -- Just [StartTag "foo" []]
-resultMaybe :: Result a -> Maybe a
-resultMaybe = these (const Nothing) Just (\_ a -> Just a)
+warnMaybe :: Warn a -> Maybe a
+warnMaybe = these (const Nothing) Just (\_ a -> Just a)
 
 -- | Convert bytestrings to 'Markup'
 --
 -- >>> markup Html "<foo><br></foo><baz"
--- These [MarkupParser (ParserLeftover "<baz")] (Markup {standard = Html, markupTree = [Node {rootLabel = StartTag "foo" [], subForest = [Node {rootLabel = StartTag "br" [], subForest = []}]}]})
-markup :: Standard -> ByteString -> These [MarkupWarning] Markup
-markup s bs = bs & (tokenize s >=> gather s) & second (Markup s)
+-- These [MarkupParser (ParserLeftover "<baz")] (Markup {ttree = [Node {rootLabel = StartTag "foo" [], subForest = [Node {rootLabel = StartTag "br" [], subForest = []}]}]})
+markup :: Standard -> ByteString -> Warn Markup
+markup s bs = bs & (tokenize s >=> gather s) & second Markup
 
 -- | markup but errors on warnings.
 markup_ :: Standard -> ByteString -> Markup
-markup_ s bs = markup s bs & resultError
+markup_ s bs = markup s bs & warnError
 
 -- | concatenate sequential content, and normalize attributes; unwording class values and removing duplicate attributes (taking last).
 --
--- >>> B.putStr $ markdown Compact $ normalize (markup_ Xml [i|<foo class="a" class="b" bar="first" bar="last"/>|])
+-- >>> B.putStr $ markdown Xml Compact $ normalize (markup_ Xml [i|<foo class="a" class="b" bar="first" bar="last"/>|])
 -- <foo bar="last" class="a b"/>
 normalize :: Markup -> Markup
-normalize (Markup s trees) = Markup s (normContentTrees $ fmap (fmap normTokenAttrs) trees)
+normalize m = normContent $ Markup $ fmap (fmap normTokenAttrs) (ttree m)
 
 -- | Are the trees in the markup well-formed?
-isWellFormed :: Markup -> Bool
-isWellFormed = (== []) . wellFormed
+isWellFormed :: Standard -> Markup -> Bool
+isWellFormed s = (== []) . wellFormed s
 
 -- | Check for well-formedness and rerturn warnings encountered.
 --
--- >>> wellFormed $ Markup Html [Node (Comment "") [], Node (EndTag "foo") [], Node (EmptyElemTag "foo" []) [Node (Content "bar") []], Node (EmptyElemTag "foo" []) []]
+-- >>> wellFormed Html $ Markup [Node (Comment "") [], Node (EndTag "foo") [], Node (EmptyElemTag "foo" []) [Node (Content "bar") []], Node (EmptyElemTag "foo" []) []]
 -- [EmptyContent,EndTagInTree,LeafWithChildren,BadEmptyElemTag]
-wellFormed :: Markup -> [MarkupWarning]
-wellFormed (Markup s trees) = List.nub $ mconcat (foldTree checkNode <$> trees)
+wellFormed :: Standard -> Markup -> [MarkupWarning]
+wellFormed s (Markup trees) = List.nub $ mconcat (foldTree checkNode <$> trees)
   where
     checkNode (StartTag _ _) xs = mconcat xs
     checkNode (EmptyElemTag n _) [] =
@@ -227,7 +268,12 @@ wellFormed (Markup s trees) = List.nub $ mconcat (foldTree checkNode <$> trees)
     checkNode (EndTag _) [] = [EndTagInTree]
     checkNode (Content bs) [] = bool [] [EmptyContent] (bs == "")
     checkNode (Comment bs) [] = bool [] [EmptyContent] (bs == "")
-    checkNode (Decl bs) [] = bool [] [EmptyContent] (bs == "")
+    checkNode (Decl bs as) []
+      | bs == "" = [EmptyContent]
+      | s == Html && as /= [] = [BadDecl]
+      | s == Xml && ("version" `elem` (attrName <$> as)) && ("encoding" `elem` (attrName <$> as))
+        = [BadDecl]
+      | otherwise = []
     checkNode (Doctype bs) [] = bool [] [EmptyContent] (bs == "")
     checkNode _ _ = [LeafWithChildren]
 
@@ -236,28 +282,28 @@ type TagName = ByteString
 
 -- | A Markup token
 --
--- >>> runParser_ (many (token Html)) [i|<foo>content</foo>|]
+-- >>> runParser_ (many (tokenP Html)) [i|<foo>content</foo>|]
 -- [StartTag "foo" [],Content "content",EndTag "foo"]
 --
--- >>> runParser_ (token Xml) [i|<foo/>|]
+-- >>> runParser_ (tokenP Xml) [i|<foo/>|]
 -- EmptyElemTag "foo" []
 --
--- >>> runParser_ (token Html) "<!-- Comment -->"
+-- >>> runParser_ (tokenP Html) "<!-- Comment -->"
 -- Comment " Comment "
 --
--- >>> runParser_ (token Xml) [i|<?xml version="1.0" encoding="UTF-8"?>|]
--- Decl "xml version=\"1.0\" encoding=\"UTF-8\""
+-- >>> runParser_ (tokenP Xml) [i|<?xml version="1.0" encoding="UTF-8"?>|]
+-- Decl "xml" [Attr {attrName = "version", attrValue = " version=\"1.0\""},Attr {attrName = "encoding", attrValue = "UTF-8"}]
 --
--- >>> runParser_ (token Html) "<!DOCTYPE html>"
+-- >>> runParser_ (tokenP Html) "<!DOCTYPE html>"
 -- Doctype "DOCTYPE html"
 --
--- >>> runParser_ (token Xml) "<!DOCTYPE foo [ declarations ]>"
+-- >>> runParser_ (tokenP Xml) "<!DOCTYPE foo [ declarations ]>"
 -- Doctype "DOCTYPE foo [ declarations ]"
 --
--- >>> runParser (token Html) [i|<foo a="a" b="b" c=c check>|]
--- OK (StartTag "foo" [Attr "a" "a",Attr "b" "b",Attr "c" "c",Attr "check" ""]) ""
+-- >>> runParser (tokenP Html) [i|<foo a="a" b="b" c=c check>|]
+-- OK (StartTag "foo" [Attr {attrName = "a", attrValue = "a"},Attr {attrName = "b", attrValue = "b"},Attr {attrName = "c", attrValue = "c"},Attr {attrName = "check", attrValue = ""}]) ""
 --
--- >>> runParser (token Xml) [i|<foo a="a" b="b" c=c check>|]
+-- >>> runParser (tokenP Xml) [i|<foo a="a" b="b" c=c check>|]
 -- Fail
 data Token
   = -- | A start tag. https://developer.mozilla.org/en-US/docs/Glossary/Tag
@@ -271,7 +317,7 @@ data Token
   | -- | Contents of a comment.
     Comment !ByteString
   | -- | Contents of a declaration
-    Decl !ByteString
+    Decl !ByteString ![Attr]
   | -- | Contents of a doctype declaration.
     Doctype !ByteString
   deriving (Show, Ord, Eq, Generic)
@@ -280,24 +326,46 @@ instance NFData Token
 
 instance ToExpr Token
 
+
+-- | Append attributes to the existing Token attribute list.
+addAttrs :: [Attr] -> Token -> Maybe Token
+addAttrs as (StartTag n as') = Just $ StartTag n (as' <> as)
+addAttrs as (EmptyElemTag n as') = Just $ EmptyElemTag n (as' <> as)
+addAttrs _ _ = Nothing
+
+-- | Standard Html Doctype
+--
+-- >>> markdown Html Compact doctypeHtml
+-- "<!DOCTYPE html>"
+doctypeHtml :: Markup
+doctypeHtml = Markup $ pure $ pure (Doctype "DOCTYPE html")
+
+-- | Standard Xml Doctype
+--
+-- >>> markdown Xml Compact doctypeXml
+-- "<?xml version=\"1.0\" encoding=\"utf-8\"?><!DOCTYPE svg PUBLIC \"-//W3C//DTD SVG 1.1//EN\"\n    \"http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd\">"
+doctypeXml :: Markup
+doctypeXml = Markup [ pure $ Decl "xml" [Attr "version" "1.0", Attr "encoding" "utf-8"],
+               pure $ Doctype "DOCTYPE svg PUBLIC \"-//W3C//DTD SVG 1.1//EN\"\n    \"http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd\""]
+
 -- | A flatparse 'Token' parser.
 --
--- >>> runParser (token Html) "<foo>content</foo>"
+-- >>> runParser (tokenP Html) "<foo>content</foo>"
 -- OK (StartTag "foo" []) "content</foo>"
-token :: Standard -> Parser String Token
-token Html = tokenHtml
-token Xml = tokenXml
+tokenP :: Standard -> Parser e Token
+tokenP Html = tokenHtmlP
+tokenP Xml = tokenXmlP
 
 -- | Parse a bytestring into tokens
 --
 -- >>> tokenize Html [i|<foo>content</foo>|]
 -- That [StartTag "foo" [],Content "content",EndTag "foo"]
-tokenize :: Standard -> ByteString -> These [MarkupWarning] [Token]
-tokenize s bs = first ((: []) . MarkupParser) $ runParserWarn (many (token s)) bs
+tokenize :: Standard -> ByteString -> Warn [Token]
+tokenize s bs = first ((: []) . MarkupParser) $ runParserWarn (many (tokenP s)) bs
 
 -- | tokenize but errors on warnings.
 tokenize_ :: Standard -> ByteString -> [Token]
-tokenize_ s bs = tokenize s bs & resultError
+tokenize_ s bs = tokenize s bs & warnError
 
 -- | Html tags that self-close
 selfClosers :: [TagName]
@@ -318,6 +386,55 @@ selfClosers =
     "wbr"
   ]
 
+-- | Create a Token from a name and attribute list
+--
+-- >>> tag "br" []
+-- EmptyElemTag "br" []
+--
+-- >>> tag "a" []
+-- StartTag "a" []
+tag :: TagName -> [Attr] -> Token
+tag n as = bool (StartTag n as) (EmptyElemTag n as) (n `elem` selfClosers)
+
+-- | Create a Markup element from a TagName and attributes that wraps some other Markup.
+--
+-- >>> element "div" [] (element_ "br" [])
+-- Markup {ttree = [Node {rootLabel = StartTag "div" [], subForest = [Node {rootLabel = EmptyElemTag "br" [], subForest = []}]}]}
+element :: TagName -> [Attr] -> Markup -> Markup
+element n as (Markup xs) = Markup [Node (StartTag n as) xs]
+
+-- | Create a Markup element from a TagName and attributes that wraps some other Markup.
+--
+-- >>> element_ "div" []
+-- Markup {ttree = [Node {rootLabel = StartTag "div" [], subForest = []}]}
+element_ :: TagName -> [Attr] -> Markup
+element_ n as = Markup [Node (tag n as) []]
+
+-- | Create a Markup element from a TagName and attributes that wraps some 'Content'.
+--
+-- >>> elementc "div" [] "content"
+-- Markup {ttree = [Node {rootLabel = StartTag "div" [], subForest = [Node {rootLabel = Content "content", subForest = []}]}]}
+elementc :: TagName -> [Attr] -> ByteString -> Markup
+elementc n as bs = element n as (content bs)
+
+-- | Create a Markup element from a bytestring, escaping the usual characters.
+--
+-- >>> content "<content>"
+-- Markup {ttree = [Node {rootLabel = Content "&ltcontent&gt", subForest = []}]}
+content :: ByteString -> Markup
+content bs = Markup [pure $ Content (escape bs)]
+
+-- | Create a Markup element from a bytestring, not escaping the usual characters.
+--
+-- >>> contentRaw "<content>"
+-- Markup {ttree = [Node {rootLabel = Content "<content>", subForest = []}]}
+--
+-- >>> markup_ Html $ markdown Html Compact $ contentRaw "<content>"
+-- *** Exception: UnclosedTag
+-- ...
+contentRaw :: ByteString -> Markup
+contentRaw bs = Markup [pure $ Content bs]
+
 -- | Name of an attribute.
 type AttrName = ByteString
 
@@ -331,7 +448,7 @@ type AttrValue = ByteString
 --
 -- >>> detokenize Html <$> tokenize_ Html [i|<input checked>|]
 -- ["<input checked=\"\">"]
-data Attr = Attr !AttrName !AttrValue
+data Attr = Attr { attrName :: !AttrName, attrValue :: !AttrValue }
   deriving (Generic, Show, Eq, Ord)
 
 instance NFData Attr
@@ -374,21 +491,6 @@ renderAttrs = B.unwords . fmap renderAttr
 renderAttr :: Attr -> ByteString
 renderAttr (Attr k v) = [i|#{k}="#{v}"|]
 
-commentClose :: Parser e ()
-commentClose = $(string "-->")
-
-charNotMinus :: Parser e ByteString
-charNotMinus = byteStringOf $ satisfy (/= '-')
-
-minusPlusChar :: Parser e ByteString
-minusPlusChar = byteStringOf ($(char '-') *> charNotMinus)
-
-comment :: Parser e Token
-comment = Comment <$> byteStringOf (many (charNotMinus <|> minusPlusChar)) <* commentClose
-
-content :: Parser e Token
-content = Content <$> byteStringOf (some (satisfy (/= '<')))
-
 -- | bytestring representation of 'Token'.
 --
 -- >>> detokenize Html (StartTag "foo" [])
@@ -406,7 +508,7 @@ detokenize s = \case
   (Content t) -> t
   (Comment t) -> [i|<!--#{t}-->|]
   (Doctype t) -> [i|<!#{t}>|]
-  (Decl t) -> bool [i|<?#{t}?>|] [i|<!#{t}!>|] (s == Html)
+  (Decl t as) -> bool [i|<?#{t} #{renderAttrs as}?>|] [i|<!#{t}!>|] (s == Html)
 
 -- | Indented 0 puts newlines in between the tags.
 data RenderStyle = Compact | Indented Int deriving (Eq, Show, Generic)
@@ -424,13 +526,13 @@ finalConcat (Indented _) =
 
 -- | Convert 'Markup' to bytestrings
 --
--- >>> B.putStr $ markdown (Indented 4) (markup_ Html [i|<foo><br></foo>|])
+-- >>> B.putStr $ markdown Html (Indented 4) (markup_ Html [i|<foo><br></foo>|])
 -- <foo>
 --     <br>
 -- </foo>
-markdown :: RenderStyle -> Markup -> ByteString
-markdown r (Markup std tree) =
-  finalConcat r $ mconcat $ foldTree (renderBranch r std) <$> normContentTrees tree
+markdown :: Standard -> RenderStyle -> Markup -> ByteString
+markdown std r m =
+  finalConcat r $ mconcat $ foldTree (renderBranch r std) <$> (ttree $ normContent m)
 
 -- note that renderBranch adds in EndTags for StartTags when needed
 renderBranch :: RenderStyle -> Standard -> Token -> [[ByteString]] -> [ByteString]
@@ -443,8 +545,12 @@ renderBranch r std x children =
   -- ignoring that this should be an error
   [detokenize std x] <> indentChildren r (mconcat children)
 
-normContentTrees :: [Tree Token] -> [Tree Token]
-normContentTrees trees = foldTree (\x xs -> Node x (filter ((/= Content "") . rootLabel) $ concatContent xs)) <$> concatContent trees
+-- | Normalise Content in Markup, concatenating adjacent Content, and removing mempty Content.
+--
+-- >>> normContent $ content "a" <> content "" <> content "b"
+-- Markup {ttree = [Node {rootLabel = Content "ab", subForest = []}]}
+normContent :: Markup -> Markup
+normContent (Markup trees) = Markup $ foldTree (\x xs -> Node x (filter ((/= Content "") . rootLabel) $ concatContent xs)) <$> concatContent trees
 
 concatContent :: [Tree Token] -> [Tree Token]
 concatContent = \case
@@ -455,8 +561,8 @@ concatContent = \case
 -- | Gather together token trees from a token list, placing child elements in nodes and removing EndTags.
 --
 -- >>> gather Html =<< tokenize Html "<foo class=\"bar\">baz</foo>"
--- That [Node {rootLabel = StartTag "foo" [Attr "class" "bar"], subForest = [Node {rootLabel = Content "baz", subForest = []}]}]
-gather :: Standard -> [Token] -> These [MarkupWarning] [Tree Token]
+-- That [Node {rootLabel = StartTag "foo" [Attr {attrName = "class", attrValue = "bar"}], subForest = [Node {rootLabel = Content "baz", subForest = []}]}]
+gather :: Standard -> [Token] -> Warn [Tree Token]
 gather s ts =
   case (finalSibs, finalParents, warnings) of
     (sibs, [], []) -> That (reverse sibs)
@@ -469,7 +575,7 @@ gather s ts =
 
 -- | gather but errors on warnings.
 gather_ :: Standard -> [Token] -> [Tree Token]
-gather_ s ts = gather s ts & resultError
+gather_ s ts = gather s ts & warnError
 
 incCursor :: Standard -> Token -> Cursor -> (Cursor, Maybe MarkupWarning)
 -- Only StartTags are ever pushed on to the parent list, here:
@@ -505,22 +611,22 @@ data Cursor = Cursor
 
 -- | Convert a markup into a token list, adding end tags.
 --
--- >>> degather =<< markup Html "<foo class=\"bar\">baz</foo>"
--- That [StartTag "foo" [Attr "class" "bar"],Content "baz",EndTag "foo"]
-degather :: Markup -> These [MarkupWarning] [Token]
-degather (Markup s tree) = rconcats $ foldTree (addCloseTags s) <$> tree
+-- >>> degather Html =<< markup Html "<foo class=\"bar\">baz</foo>"
+-- That [StartTag "foo" [Attr {attrName = "class", attrValue = "bar"}],Content "baz",EndTag "foo"]
+degather :: Standard -> Markup -> Warn [Token]
+degather s (Markup tree) = rconcats $ foldTree (addCloseTags s) <$> tree
 
 -- | degather but errors on warning
-degather_ :: Markup -> [Token]
-degather_ m = degather m & resultError
+degather_ :: Standard -> Markup -> [Token]
+degather_ s m = degather s m & warnError
 
-rconcats :: [Result [a]] -> Result [a]
+rconcats :: [Warn [a]] -> Warn [a]
 rconcats rs = case bimap mconcat mconcat $ partitionHereThere rs of
   ([], xs) -> That xs
   (es, []) -> This es
   (es, xs) -> These es xs
 
-addCloseTags :: Standard -> Token -> [These [MarkupWarning] [Token]] -> These [MarkupWarning] [Token]
+addCloseTags :: Standard -> Token -> [Warn [Token]] -> Warn [Token]
 addCloseTags std s@(StartTag n _) children
   | children /= [] && n `elem` selfClosers && std == Html =
       These [SelfCloserWithChildren] [s] <> rconcats children
@@ -532,23 +638,23 @@ addCloseTags _ x xs = case xs of
   [] -> That [x]
   cs -> These [LeafWithChildren] [x] <> rconcats cs
 
-tokenXml :: Parser e Token
-tokenXml =
+tokenXmlP:: Parser e Token
+tokenXmlP=
   $( switch
        [|
          case _ of
-           "<!--" -> comment
-           "<!" -> doctypeXml
-           "</" -> endTagXml
-           "<?" -> declXml
-           "<" -> startTagsXml
-           _ -> content
+           "<!--" -> commentP
+           "<!" -> doctypeXmlP
+           "</" -> endTagXmlP
+           "<?" -> declXmlP
+           "<" -> startTagsXmlP
+           _ -> contentP
          |]
    )
 
 -- [4]
-nameStartChar :: Parser e Char
-nameStartChar = fusedSatisfy isLatinLetter isNameStartChar isNameStartChar isNameStartChar
+nameStartCharP:: Parser e Char
+nameStartCharP = fusedSatisfy isLatinLetter isNameStartChar isNameStartChar isNameStartChar
 
 isNameStartChar :: Char -> Bool
 isNameStartChar x =
@@ -570,8 +676,8 @@ isNameStartChar x =
     || (x >= '\x10000' && x <= '\xEFFFF')
 
 -- [4a]
-nameChar :: Parser e Char
-nameChar = fusedSatisfy isNameCharAscii isNameCharExt isNameCharExt isNameCharExt
+nameCharP :: Parser e Char
+nameCharP= fusedSatisfy isNameCharAscii isNameCharExt isNameCharExt isNameCharExt
 
 isNameCharAscii :: Char -> Bool
 isNameCharAscii x =
@@ -609,39 +715,52 @@ isNameCharExt x =
     || (x >= '\x10000' && x <= '\xEFFFF')
 
 -- | name string according to xml production rule [5]
-nameXml :: Parser e ByteString
-nameXml = byteStringOf (nameStartChar >> many nameChar)
+nameXmlP :: Parser e ByteString
+nameXmlP = byteStringOf (nameStartCharP >> many nameCharP)
+
+commentCloseP :: Parser e ()
+commentCloseP = $(string "-->")
+
+charNotMinusP :: Parser e ByteString
+charNotMinusP = byteStringOf $ satisfy (/= '-')
+
+minusPlusCharP :: Parser e ByteString
+minusPlusCharP = byteStringOf ($(char '-') *> charNotMinusP)
+
+commentP :: Parser e Token
+commentP = Comment <$> byteStringOf (many (charNotMinusP <|> minusPlusCharP)) <* commentCloseP
+
+contentP :: Parser e Token
+contentP = Content <$> byteStringOf (some (satisfy (/= '<')))
 
 -- | XML declaration as per production rule [23]
-declXml :: Parser e Token
-declXml =
-  Decl
-    <$> byteStringOf
-      ( $(string "xml")
-          >> xmlVersionInfo
-          >> optional xmlEncodingDecl
-          >> optional xmlStandalone
-          >> ws_
-      )
-    <* $(string "?>")
+declXmlP :: Parser e Token
+declXmlP = do
+  _ <- $(string "xml")
+  av <- Attr "version" <$> xmlVersionInfoP
+  en <- Attr "encoding" <$> xmlEncodingDeclP
+  st <- optional $ Attr "standalone" <$> xmlStandaloneP
+  _ <- ws_
+  _ <- $(string "?>")
+  pure $ Decl "xml" $ [av, en] <> (maybe [] (:[]) st)
 
 -- | xml production [24]
-xmlVersionInfo :: Parser e ByteString
-xmlVersionInfo = byteStringOf $ ws_ >> $(string "version") >> eq >> wrappedQNoGuard xmlVersionNum
+xmlVersionInfoP :: Parser e ByteString
+xmlVersionInfoP = byteStringOf $ ws_ >> $(string "version") >> eq >> wrappedQNoGuard xmlVersionNumP
 
 -- | xml production [26]
-xmlVersionNum :: Parser e ByteString
-xmlVersionNum =
+xmlVersionNumP :: Parser e ByteString
+xmlVersionNumP =
   byteStringOf ($(string "1.") >> some (satisfy isDigit))
 
 -- | Doctype declaration as per production rule [28]
-doctypeXml :: Parser e Token
-doctypeXml =
+doctypeXmlP :: Parser e Token
+doctypeXmlP =
   Doctype
     <$> byteStringOf
       ( $(string "DOCTYPE")
           >> ws_
-          >> nameXml
+          >> nameXmlP
           >>
           -- optional (ws_ >> xmlExternalID) >>
           ws_
@@ -651,29 +770,29 @@ doctypeXml =
     <* $(char '>')
 
 -- | Xml production [32]
-xmlStandalone :: Parser e ByteString
-xmlStandalone =
+xmlStandaloneP :: Parser e ByteString
+xmlStandaloneP =
   byteStringOf $
-    ws_ *> $(string "standalone") *> eq *> xmlYesNo
+    ws_ *> $(string "standalone") *> eq *> xmlYesNoP
 
 -- | Xml yes/no
-xmlYesNo :: Parser e ByteString
-xmlYesNo = wrappedQNoGuard (byteStringOf $ $(string "yes") <|> $(string "no"))
+xmlYesNoP :: Parser e ByteString
+xmlYesNoP = wrappedQNoGuard (byteStringOf $ $(string "yes") <|> $(string "no"))
 
 -- | xml production [80]
-xmlEncodingDecl :: Parser e ByteString
-xmlEncodingDecl = ws_ *> $(string "encoding") *> eq *> wrappedQNoGuard xmlEncName
+xmlEncodingDeclP :: Parser e ByteString
+xmlEncodingDeclP = ws_ *> $(string "encoding") *> eq *> wrappedQNoGuard xmlEncNameP
 
 -- | xml production [81]
-xmlEncName :: Parser e ByteString
-xmlEncName = byteStringOf (satisfyAscii isLatinLetter >> many (satisfyAscii (\x -> isLatinLetter x || isDigit x || elem x ("._-" :: [Char]))))
+xmlEncNameP :: Parser e ByteString
+xmlEncNameP = byteStringOf (satisfyAscii isLatinLetter >> many (satisfyAscii (\x -> isLatinLetter x || isDigit x || elem x ("._-" :: [Char]))))
 
 -- | open xml tag as per xml production rule [40]
 --  self-closing xml tag as per [44]
-startTagsXml :: Parser e Token
-startTagsXml = do
-  !n <- nameXml
-  !as <- many (ws_ *> attrXml)
+startTagsXmlP :: Parser e Token
+startTagsXmlP = do
+  !n <- nameXmlP
+  !as <- many (ws_ *> attrXmlP)
   _ <- ws_
   $( switch
        [|
@@ -683,46 +802,46 @@ startTagsXml = do
          |]
    )
 
-attrXml :: Parser e Attr
-attrXml = Attr <$> (nameXml <* eq) <*> wrappedQ
+attrXmlP :: Parser e Attr
+attrXmlP = Attr <$> (nameXmlP <* eq) <*> wrappedQ
 
 -- | closing tag as per [42]
-endTagXml :: Parser e Token
-endTagXml = EndTag <$> (nameXml <* ws_ <* $(char '>'))
+endTagXmlP :: Parser e Token
+endTagXmlP = EndTag <$> (nameXmlP <* ws_ <* $(char '>'))
 
 -- | Parse a single 'Token'.
-tokenHtml :: Parser e Token
-tokenHtml =
+tokenHtmlP :: Parser e Token
+tokenHtmlP =
   $( switch
        [|
          case _ of
-           "<!--" -> comment
-           "<!" -> doctypeHtml
-           "</" -> endTagHtml
-           "<?" -> bogusCommentHtml
-           "<" -> startTagsHtml
-           _ -> content
+           "<!--" -> commentP
+           "<!" -> doctypeHtmlP
+           "</" -> endTagHtmlP
+           "<?" -> bogusCommentHtmlP
+           "<" -> startTagsHtmlP
+           _ -> contentP
          |]
    )
 
-bogusCommentHtml :: Parser e Token
-bogusCommentHtml = Comment <$> byteStringOf (some (satisfy (/= '<')))
+bogusCommentHtmlP :: Parser e Token
+bogusCommentHtmlP = Comment <$> byteStringOf (some (satisfy (/= '<')))
 
-doctypeHtml :: Parser e Token
-doctypeHtml =
+doctypeHtmlP :: Parser e Token
+doctypeHtmlP =
   Doctype
     <$> byteStringOf
       ( $(string "DOCTYPE")
           >> ws_
-          >> nameHtml
+          >> nameHtmlP
           >> ws_
       )
     <* $(char '>')
 
-startTagsHtml :: Parser e Token
-startTagsHtml = do
-  n <- nameHtml
-  as <- attrs Html
+startTagsHtmlP :: Parser e Token
+startTagsHtmlP = do
+  n <- nameHtmlP
+  as <- attrsP Html
   _ <- ws_
   $( switch
        [|
@@ -732,20 +851,20 @@ startTagsHtml = do
          |]
    )
 
-endTagHtml :: Parser e Token
-endTagHtml = EndTag <$> nameHtml <* ws_ <* $(char '>')
+endTagHtmlP :: Parser e Token
+endTagHtmlP = EndTag <$> nameHtmlP <* ws_ <* $(char '>')
 
 -- | Parse a tag name. Each standard is slightly different.
-name :: Standard -> Parser e ByteString
-name Html = nameHtml
-name Xml = nameXml
+nameP :: Standard -> Parser e ByteString
+nameP Html = nameHtmlP
+nameP Xml = nameXmlP
 
-nameHtml :: Parser e ByteString
-nameHtml = do
-  byteStringOf (nameStartCharHtml >> many (satisfy isNameChar))
+nameHtmlP :: Parser e ByteString
+nameHtmlP = do
+  byteStringOf (nameStartCharHtmlP >> many (satisfy isNameChar))
 
-nameStartCharHtml :: Parser e Char
-nameStartCharHtml = satisfyAscii isLatinLetter
+nameStartCharHtmlP :: Parser e Char
+nameStartCharHtmlP = satisfyAscii isLatinLetter
 
 isNameChar :: Char -> Bool
 isNameChar x =
@@ -756,25 +875,25 @@ isNameChar x =
         || (x == '>')
     )
 
-attrHtml :: Parser e Attr
-attrHtml =
-  (Attr <$> (attrName <* eq) <*> (wrappedQ <|> attrBooleanName))
-    <|> ((`Attr` mempty) <$> attrBooleanName)
+attrHtmlP :: Parser e Attr
+attrHtmlP =
+  (Attr <$> (attrNameP <* eq) <*> (wrappedQ <|> attrBooleanNameP))
+    <|> ((`Attr` mempty) <$> attrBooleanNameP)
 
-attrBooleanName :: Parser e ByteString
-attrBooleanName = byteStringOf $ some (satisfy isBooleanAttrName)
+attrBooleanNameP :: Parser e ByteString
+attrBooleanNameP = byteStringOf $ some (satisfy isBooleanAttrName)
 
 -- | Parse an 'Attr'
-attr :: Standard -> Parser a Attr
-attr Html = attrHtml
-attr Xml = attrXml
+attrP :: Standard -> Parser a Attr
+attrP Html = attrHtmlP
+attrP Xml = attrXmlP
 
 -- | Parse attributions
-attrs :: Standard -> Parser a [Attr]
-attrs s = many (ws_ *> attr s) <* ws_
+attrsP :: Standard -> Parser a [Attr]
+attrsP s = many (ws_ *> attrP s) <* ws_
 
-attrName :: Parser e ByteString
-attrName = isa isAttrName
+attrNameP :: Parser e ByteString
+attrNameP = isa isAttrName
 
 isAttrName :: Char -> Bool
 isAttrName x =

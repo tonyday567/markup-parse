@@ -11,7 +11,7 @@ import FlatParse.Basic (byteStringOf, char, satisfy, skipMany)
 import FlatParse.Basic qualified as FP
 import MarkupParse
 import MarkupParse.FlatParse
-import Options.Applicative
+import Options.Applicative as OA
 import Perf
 import Text.HTML.Parser qualified as HP
 import Text.HTML.Tree qualified as HP
@@ -27,7 +27,7 @@ data SpeedOptions = SpeedOptions
   }
   deriving (Eq, Show)
 
-parseRun :: Parser RunType
+parseRun :: OA.Parser RunType
 parseRun =
   flag' RunDefault (long "default" <> help "run default performance test")
     <|> flag' RunMarkup (long "markup" <> short 'm' <> help "run markup performance test")
@@ -38,7 +38,7 @@ parseRun =
     <|> flag' RunIsa (long "isa" <> help "test isa")
     <|> pure RunDefault
 
-speedOptions :: Parser SpeedOptions
+speedOptions :: OA.Parser SpeedOptions
 speedOptions =
   SpeedOptions
     <$> parseReportOptions
@@ -69,21 +69,21 @@ main = do
         ts' <- ffap "html-parse tokens" HP.parseTokens t
         _ <- ffap "html-parse tree" (either undefined id . HP.tokensToForest) ts'
         tsHtml <-
-          resultError
+          warnError
             <$> ffap "tokenize" (tokenize Xml) bs
         _ <-
-          resultError
+          warnError
             <$> ffap "gather" (gather Xml) tsHtml
         m <-
-          resultError
+          warnError
             <$> ffap "markup" (markup Xml) bs
         _ <- ffap "normalize" normalize m
-        _ <- ffap "markdown" (markdown Compact) m
+        _ <- ffap "markdown" (markdown Xml Compact) m
         pure ()
     RunMarkup -> do
       bs <- B.readFile f
       reportMainWith rep (show r) $ do
-        fap "markup" (length . markupTree . markup_ Xml) bs
+        fap "markup" (length . ttree . markup_ Xml) bs
     RunWhitespace -> do
       reportMainWith rep (show r) (wsFap " \n\nx")
     RunWrappedQ -> do
@@ -103,9 +103,9 @@ main = do
         _ <- ffap "html-parse tree" (either undefined length . HP.tokensToForest) ts'
         _ <- ffap "tokenize" (length . tokenize Xml) bs
         _ <- ffap "gather" (length . gather_ Xml) ts
-        _ <- ffap "markup" (length . markupTree . markup_ Xml) bs
+        _ <- ffap "markup" (length . ttree. markup_ Xml) bs
         _ <- ffap "normalize" normalize m
-        _ <- ffap "markdown" (markdown Compact) m
+        _ <- ffap "markdown" (markdown Xml Compact) m
         pure ()
 
 -- | Consume whitespace.
@@ -158,13 +158,13 @@ fapWrappedQ bs = do
 fapIsa :: PerfT IO [[Double]] ()
 fapIsa = do
   fap "isa isAttrName" (FP.runParser (isa isAttrName)) "name"
-  fap "attrName" (FP.runParser attrName) "name"
+  fap "attrNameP" (FP.runParser attrNameP) "name"
   pure ()
 
 fapBSOf :: PerfT IO [[Double]] ()
 fapBSOf = do
-  fap "byteStringOf" (FP.runParser (byteStringOf (attrs Html))) " a=\"a\" b=b c>"
-  fap "byteStringOf'" (FP.runParser (byteStringOf (attrs Html))) " a=\"a\" b=b c>"
+  fap "byteStringOf" (FP.runParser (byteStringOf (attrsP Html))) " a=\"a\" b=b c>"
+  fap "byteStringOf'" (FP.runParser (byteStringOf' (attrsP Html))) " a=\"a\" b=b c>"
   pure ()
 
 isAttrName :: Char -> Bool
@@ -175,8 +175,8 @@ isAttrName x =
       || (x == '>')
       || (x == '=')
 
-attrName :: FP.Parser e B.ByteString
-attrName = byteStringOf $ some (satisfy isAttrName)
+attrNameP :: FP.Parser e B.ByteString
+attrNameP = byteStringOf $ some (satisfy isAttrName)
 
 wrappedQSatisfy :: FP.Parser e B.ByteString
 wrappedQSatisfy =

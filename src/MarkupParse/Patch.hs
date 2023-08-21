@@ -2,6 +2,7 @@
 module MarkupParse.Patch
   ( patch,
     goldenPatch,
+    showPatch,
   )
 where
 
@@ -13,10 +14,11 @@ import GHC.Exts
 import Test.Tasty (TestTree)
 import Test.Tasty.Golden.Advanced (goldenTest)
 import Prelude
+import Data.Function
+import Control.Category ((>>>))
 
 -- $setup
 -- >>> :set -XOverloadedStrings
--- >>> import Data.TreeDiff
 -- >>> import MarkupParse.Patch
 
 -- | compare a markup file with a round-trip transformation.
@@ -88,7 +90,11 @@ filterChangedEditMap m = case xs' of
 
 -- | 'ediff' with unchanged sections filtered out
 --
--- >>> show $ ansiWlEditExpr <$> patch [1, 2, 3, 5] [0, 1, 2, 4, 6]
--- "Just [+0, -3, +4, -5, +6]"
+-- >>> showPatch $ patch [1, 2, 3, 5] [0, 1, 2, 4, 6]
+-- "[+0, -3, +4, -5, +6]"
 patch :: (ToExpr a) => a -> a -> Maybe (Edit EditExpr)
 patch m m' = filterChangedEdit $ ediff m m'
+
+-- | Create a String representation of a patch.
+showPatch :: Maybe (Edit EditExpr) -> String
+showPatch p = p & maybe mempty (ansiWlEditExpr >>> show)
