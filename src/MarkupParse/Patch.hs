@@ -6,7 +6,9 @@ module MarkupParse.Patch
   )
 where
 
+import Control.Category ((>>>))
 import Data.Foldable
+import Data.Function
 import Data.Maybe
 import Data.TreeDiff
 import Data.TreeDiff.OMap qualified as O
@@ -14,8 +16,6 @@ import GHC.Exts
 import Test.Tasty (TestTree)
 import Test.Tasty.Golden.Advanced (goldenTest)
 import Prelude
-import Data.Function
-import Control.Category ((>>>))
 
 -- $setup
 -- >>> :set -XOverloadedStrings

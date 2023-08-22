@@ -1,14 +1,17 @@
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE DerivingStrategies #-}
 
--- | A 'Markup' parser and printer of strict bytestrings. 'Markup' is a representation of data such as HTML, SVG or XML but the parsing is sub-standard.
+-- | A 'Markup' parser and printer of strict 'ByteString's focused on optimising performance. 'Markup' is a representation of data such as HTML, SVG or XML but the parsing is not always at standards.
 module MarkupParse
-  ( -- $usage
+  ( -- * Usage
+
+    --
+    -- $usage
 
     -- * Markup
     Markup (..),
@@ -17,6 +20,7 @@ module MarkupParse
     markup_,
     RenderStyle (..),
     markdown,
+    markdown_,
     normalize,
     normContent,
     wellFormed,
@@ -30,16 +34,17 @@ module MarkupParse
     warnMaybe,
 
     -- * element creation
+    Element,
     element,
     element_,
+    emptyElem,
     elementc,
     content,
     contentRaw,
 
     -- * Token components
-    TagName,
+    NameTag,
     selfClosers,
-    tag,
     addAttrs,
     doctypeHtml,
     doctypeXml,
@@ -50,10 +55,9 @@ module MarkupParse
     nameP,
 
     -- * Tokens
+    OpenTagType (..),
     Token (..),
     tokenize,
-    escapeChar,
-    escape,
     tokenize_,
     tokenP,
     detokenize,
@@ -73,6 +77,8 @@ module MarkupParse
     -- * bytestring support
     utf8ToStr,
     strToUtf8,
+    escapeChar,
+    escape,
 
     -- * Tree support
     Tree (..),
@@ -121,24 +127,33 @@ import Prelude hiding (replicate)
 -- > bs <- B.readFile "other/line.svg"
 -- > m = markup_ bs
 --
--- @'markdown' . ''markup_'@ is an approximate round trip from 'ByteString' to 'Markup' back to ByteString'. The underscores represent versions of main functions that throw an exception on warnings encountered along the way.
+-- @'markdown_' . 'markup_'@ is an isomorphic round trip from 'Markup' to 'ByteString' to 'Markup':
+--
+-- - This is subject to the Markup being 'wellFormed'.
+--
+-- - The round-trip @'markup_' . 'markdown_'@ is not isomorphic as parsing forgets whitespace within tags, comments and declarations.
+--
+-- - The underscores represent versions of main functions that throw an exception on warnings encountered along the way.
 --
 -- At a lower level, a round trip pipeline might look something like:
 --
--- > :t tokenize Html >=> gather Html >>> fmap (Markup Html >>> normalize) >=> degather >>> fmap (fmap (detokenize Html) >>> mconcat)
--- > ByteString -> These [MarkupWarning] ByteString
+-- > tokenize Html >=>
 --
--- From left to right:
+-- - 'tokenize' converts a 'ByteString' to a 'Token' list.
 --
--- - 'tokenize' converts a 'ByteString' to a 'Token' list,
+-- > gather Html >=>
 --
--- - 'gather' takes the tokens and gathers them into 'Tree's of tokens
+-- - 'gather' takes the tokens and gathers them into 'Tree's of 'Token's which is what 'Markup' is.
 --
--- - this is then wrapped into the 'Markup' data type.
+-- > (normalize >>> pure) >=>
 --
 -- - 'normalize' concatenates content, and normalizes attributes,
 --
+-- > degather >=>
+--
 -- - 'degather' turns the markup tree back into a token list. Finally,
+--
+-- > fmap (detokenize Html) >>> pure
 --
 -- - 'detokenize' turns a token back into a bytestring.
 --
@@ -149,34 +164,16 @@ import Prelude hiding (replicate)
 -- The xml parsing logic is based on the XML productions found in https://www.w3.org/TR/xml/
 --
 -- The html parsing was based on a reading of <https://hackage.haskell.org/package/html-parse html-parse>, but ignores the various '\x00' to '\xfffd' & eof directives that form part of the html standards.
-data Standard = Html | Xml deriving (Eq, Show, Ord, Generic, NFData)
+data Standard = Html | Xml deriving (Eq, Show, Ord, Generic, NFData, ToExpr)
 
-instance ToExpr Standard
-
--- | A 'Tree' list of markup 'Token's
+-- | A list of 'Element's or 'Tree' 'Token's
 --
 -- >>> markup Html "<foo class=\"bar\">baz</foo>"
--- That (Markup {ttree = [Node {rootLabel = StartTag "foo" [Attr {attrName = "class", attrValue = "bar"}], subForest = [Node {rootLabel = Content "baz", subForest = []}]}]})
-newtype Markup = Markup { ttree :: [Tree Token]}
+-- That (Markup {elements = [Node {rootLabel = OpenTag StartTag "foo" [Attr {attrName = "class", attrValue = "bar"}], subForest = [Node {rootLabel = Content "baz", subForest = []}]}]})
+newtype Markup = Markup {elements :: [Element]}
   deriving stock (Show, Eq, Ord, Generic)
   deriving anyclass (NFData, ToExpr)
   deriving newtype (Semigroup, Monoid)
-
--- | Escape a single character.
-escapeChar :: Char -> ByteString
-escapeChar '<' = "&lt"
-escapeChar '>' = "&gt"
-escapeChar '&' = "&amp"
-escapeChar '\'' = "&apos"
-escapeChar '"' = "&quot"
-escapeChar x = B.singleton x
-
--- | Escape Content
---
--- >>> escape [i|<foo class="a" bar='b'>|]
--- "&ltfoo class=&quota&quot bar=&aposb&apos&gt"
-escape :: ByteString -> ByteString
-escape bs = B.concatMap escapeChar bs
 
 -- | markup-parse generally tries to continue on parse errors, and return what has/can still be parsed, together with any warnings.
 data MarkupWarning
@@ -187,7 +184,7 @@ data MarkupWarning
   | -- | Only a 'StartTag' can have child tokens.
     LeafWithChildren
   | -- | A CloseTag with a different name to the currently open StartTag.
-    TagMismatch TagName TagName
+    TagMismatch NameTag NameTag
   | -- | An EndTag with no corresponding StartTag.
     UnmatchedEndTag
   | -- | An EndTag with corresponding StartTag.
@@ -229,16 +226,16 @@ warnEither = these Left Right (\xs a -> bool (Left xs) (Right a) (xs == []))
 -- | Returns results, if any, ignoring warnings.
 --
 -- >>> warnMaybe $ (tokenize Html) "<foo><baz"
--- Just [StartTag "foo" []]
+-- Just [OpenTag StartTag "foo" []]
 warnMaybe :: Warn a -> Maybe a
 warnMaybe = these (const Nothing) Just (\_ a -> Just a)
 
 -- | Convert bytestrings to 'Markup'
 --
 -- >>> markup Html "<foo><br></foo><baz"
--- These [MarkupParser (ParserLeftover "<baz")] (Markup {ttree = [Node {rootLabel = StartTag "foo" [], subForest = [Node {rootLabel = StartTag "br" [], subForest = []}]}]})
+-- These [MarkupParser (ParserLeftover "<baz")] (Markup {elements = [Node {rootLabel = OpenTag StartTag "foo" [], subForest = [Node {rootLabel = OpenTag StartTag "br" [], subForest = []}]}]})
 markup :: Standard -> ByteString -> Warn Markup
-markup s bs = bs & (tokenize s >=> gather s) & second Markup
+markup s bs = bs & (tokenize s >=> gather s)
 
 -- | markup but errors on warnings.
 markup_ :: Standard -> ByteString -> Markup
@@ -246,10 +243,10 @@ markup_ s bs = markup s bs & warnError
 
 -- | concatenate sequential content, and normalize attributes; unwording class values and removing duplicate attributes (taking last).
 --
--- >>> B.putStr $ markdown Xml Compact $ normalize (markup_ Xml [i|<foo class="a" class="b" bar="first" bar="last"/>|])
+-- >>> B.putStr $ warnError $ markdown Compact Xml $ normalize (markup_ Xml [i|<foo class="a" class="b" bar="first" bar="last"/>|])
 -- <foo bar="last" class="a b"/>
 normalize :: Markup -> Markup
-normalize m = normContent $ Markup $ fmap (fmap normTokenAttrs) (ttree m)
+normalize m = normContent $ Markup $ fmap (fmap normTokenAttrs) (elements m)
 
 -- | Are the trees in the markup well-formed?
 isWellFormed :: Standard -> Markup -> Bool
@@ -257,13 +254,13 @@ isWellFormed s = (== []) . wellFormed s
 
 -- | Check for well-formedness and rerturn warnings encountered.
 --
--- >>> wellFormed Html $ Markup [Node (Comment "") [], Node (EndTag "foo") [], Node (EmptyElemTag "foo" []) [Node (Content "bar") []], Node (EmptyElemTag "foo" []) []]
+-- >>> wellFormed Html $ Markup [Node (Comment "") [], Node (EndTag "foo") [], Node (OpenTag EmptyElemTag "foo" []) [Node (Content "bar") []], Node (OpenTag EmptyElemTag "foo" []) []]
 -- [EmptyContent,EndTagInTree,LeafWithChildren,BadEmptyElemTag]
 wellFormed :: Standard -> Markup -> [MarkupWarning]
 wellFormed s (Markup trees) = List.nub $ mconcat (foldTree checkNode <$> trees)
   where
-    checkNode (StartTag _ _) xs = mconcat xs
-    checkNode (EmptyElemTag n _) [] =
+    checkNode (OpenTag StartTag _ _) xs = mconcat xs
+    checkNode (OpenTag EmptyElemTag n _) [] =
       bool [] [BadEmptyElemTag] (not (n `elem` selfClosers) && s == Html)
     checkNode (EndTag _) [] = [EndTagInTree]
     checkNode (Content bs) [] = bool [] [EmptyContent] (bs == "")
@@ -271,22 +268,25 @@ wellFormed s (Markup trees) = List.nub $ mconcat (foldTree checkNode <$> trees)
     checkNode (Decl bs as) []
       | bs == "" = [EmptyContent]
       | s == Html && as /= [] = [BadDecl]
-      | s == Xml && ("version" `elem` (attrName <$> as)) && ("encoding" `elem` (attrName <$> as))
-        = [BadDecl]
+      | s == Xml && ("version" `elem` (attrName <$> as)) && ("encoding" `elem` (attrName <$> as)) =
+          [BadDecl]
       | otherwise = []
     checkNode (Doctype bs) [] = bool [] [EmptyContent] (bs == "")
     checkNode _ _ = [LeafWithChildren]
 
 -- | Name of token
-type TagName = ByteString
+type NameTag = ByteString
+
+-- | Whether an opening tag is a start tag or an empty element tag.
+data OpenTagType = StartTag | EmptyElemTag deriving (Show, Ord, Eq, Generic, NFData, ToExpr)
 
 -- | A Markup token
 --
 -- >>> runParser_ (many (tokenP Html)) [i|<foo>content</foo>|]
--- [StartTag "foo" [],Content "content",EndTag "foo"]
+-- [OpenTag StartTag "foo" [],Content "content",EndTag "foo"]
 --
 -- >>> runParser_ (tokenP Xml) [i|<foo/>|]
--- EmptyElemTag "foo" []
+-- OpenTag EmptyElemTag "foo" []
 --
 -- >>> runParser_ (tokenP Html) "<!-- Comment -->"
 -- Comment " Comment "
@@ -301,17 +301,15 @@ type TagName = ByteString
 -- Doctype "DOCTYPE foo [ declarations ]"
 --
 -- >>> runParser (tokenP Html) [i|<foo a="a" b="b" c=c check>|]
--- OK (StartTag "foo" [Attr {attrName = "a", attrValue = "a"},Attr {attrName = "b", attrValue = "b"},Attr {attrName = "c", attrValue = "c"},Attr {attrName = "check", attrValue = ""}]) ""
+-- OK (OpenTag StartTag "foo" [Attr {attrName = "a", attrValue = "a"},Attr {attrName = "b", attrValue = "b"},Attr {attrName = "c", attrValue = "c"},Attr {attrName = "check", attrValue = ""}]) ""
 --
 -- >>> runParser (tokenP Xml) [i|<foo a="a" b="b" c=c check>|]
 -- Fail
 data Token
-  = -- | A start tag. https://developer.mozilla.org/en-US/docs/Glossary/Tag
-    StartTag !TagName ![Attr]
-  | -- | An empty element tag. Optional for XML and kind of not allowed in HTML.
-    EmptyElemTag !TagName ![Attr]
+  = -- | A tag. https://developer.mozilla.org/en-US/docs/Glossary/Tag
+    OpenTag !OpenTagType !NameTag ![Attr]
   | -- | A closing tag.
-    EndTag !TagName
+    EndTag !NameTag
   | -- | The content between tags.
     Content !ByteString
   | -- | Contents of a comment.
@@ -320,38 +318,51 @@ data Token
     Decl !ByteString ![Attr]
   | -- | Contents of a doctype declaration.
     Doctype !ByteString
-  deriving (Show, Ord, Eq, Generic)
+  deriving (Show, Ord, Eq, Generic, NFData, ToExpr)
 
-instance NFData Token
+-- | Escape a single character.
+escapeChar :: Char -> ByteString
+escapeChar '<' = "&lt"
+escapeChar '>' = "&gt"
+escapeChar '&' = "&amp"
+escapeChar '\'' = "&apos"
+escapeChar '"' = "&quot"
+escapeChar x = B.singleton x
 
-instance ToExpr Token
-
+-- | Escape Content
+--
+-- >>> escape [i|<foo class="a" bar='b'>|]
+-- "&ltfoo class=&quota&quot bar=&aposb&apos&gt"
+escape :: ByteString -> ByteString
+escape bs = B.concatMap escapeChar bs
 
 -- | Append attributes to the existing Token attribute list.
 addAttrs :: [Attr] -> Token -> Maybe Token
-addAttrs as (StartTag n as') = Just $ StartTag n (as' <> as)
-addAttrs as (EmptyElemTag n as') = Just $ EmptyElemTag n (as' <> as)
+addAttrs as (OpenTag t n as') = Just $ OpenTag t n (as <> as')
 addAttrs _ _ = Nothing
 
 -- | Standard Html Doctype
 --
--- >>> markdown Html Compact doctypeHtml
+-- >>> markdown_ Compact Html doctypeHtml
 -- "<!DOCTYPE html>"
 doctypeHtml :: Markup
 doctypeHtml = Markup $ pure $ pure (Doctype "DOCTYPE html")
 
 -- | Standard Xml Doctype
 --
--- >>> markdown Xml Compact doctypeXml
+-- >>> markdown_ Compact Xml doctypeXml
 -- "<?xml version=\"1.0\" encoding=\"utf-8\"?><!DOCTYPE svg PUBLIC \"-//W3C//DTD SVG 1.1//EN\"\n    \"http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd\">"
 doctypeXml :: Markup
-doctypeXml = Markup [ pure $ Decl "xml" [Attr "version" "1.0", Attr "encoding" "utf-8"],
-               pure $ Doctype "DOCTYPE svg PUBLIC \"-//W3C//DTD SVG 1.1//EN\"\n    \"http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd\""]
+doctypeXml =
+  Markup
+    [ pure $ Decl "xml" [Attr "version" "1.0", Attr "encoding" "utf-8"],
+      pure $ Doctype "DOCTYPE svg PUBLIC \"-//W3C//DTD SVG 1.1//EN\"\n    \"http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd\""
+    ]
 
 -- | A flatparse 'Token' parser.
 --
 -- >>> runParser (tokenP Html) "<foo>content</foo>"
--- OK (StartTag "foo" []) "content</foo>"
+-- OK (OpenTag StartTag "foo" []) "content</foo>"
 tokenP :: Standard -> Parser e Token
 tokenP Html = tokenHtmlP
 tokenP Xml = tokenXmlP
@@ -359,7 +370,7 @@ tokenP Xml = tokenXmlP
 -- | Parse a bytestring into tokens
 --
 -- >>> tokenize Html [i|<foo>content</foo>|]
--- That [StartTag "foo" [],Content "content",EndTag "foo"]
+-- That [OpenTag StartTag "foo" [],Content "content",EndTag "foo"]
 tokenize :: Standard -> ByteString -> Warn [Token]
 tokenize s bs = first ((: []) . MarkupParser) $ runParserWarn (many (tokenP s)) bs
 
@@ -368,7 +379,7 @@ tokenize_ :: Standard -> ByteString -> [Token]
 tokenize_ s bs = tokenize s bs & warnError
 
 -- | Html tags that self-close
-selfClosers :: [TagName]
+selfClosers :: [NameTag]
 selfClosers =
   [ "area",
     "base",
@@ -386,50 +397,50 @@ selfClosers =
     "wbr"
   ]
 
--- | Create a Token from a name and attribute list
---
--- >>> tag "br" []
--- EmptyElemTag "br" []
---
--- >>> tag "a" []
--- StartTag "a" []
-tag :: TagName -> [Attr] -> Token
-tag n as = bool (StartTag n as) (EmptyElemTag n as) (n `elem` selfClosers)
+-- | Most functions return a 'Markup' rather than an 'Element' because it is more ergonimc to use the free monoid wrap (aka a list) in preference to returning a 'Maybe Element', say.
+type Element = Tree Token
 
--- | Create a Markup element from a TagName and attributes that wraps some other Markup.
+-- | Create a Markup element from a NameTag and attributes that wraps some other Markup.
 --
 -- >>> element "div" [] (element_ "br" [])
--- Markup {ttree = [Node {rootLabel = StartTag "div" [], subForest = [Node {rootLabel = EmptyElemTag "br" [], subForest = []}]}]}
-element :: TagName -> [Attr] -> Markup -> Markup
-element n as (Markup xs) = Markup [Node (StartTag n as) xs]
+-- Markup {elements = [Node {rootLabel = OpenTag StartTag "div" [], subForest = [Node {rootLabel = OpenTag StartTag "br" [], subForest = []}]}]}
+element :: NameTag -> [Attr] -> Markup -> Markup
+element n as (Markup xs) = Markup [Node (OpenTag StartTag n as) xs]
 
--- | Create a Markup element from a TagName and attributes that wraps some other Markup.
+-- | Create a Markup element from a NameTag and attributes that doesn't wrap some other Markup. OpenTagType is StartTag. Use 'emptyElem' if you want to create a EmptyElemTag.
 --
--- >>> element_ "div" []
--- Markup {ttree = [Node {rootLabel = StartTag "div" [], subForest = []}]}
-element_ :: TagName -> [Attr] -> Markup
-element_ n as = Markup [Node (tag n as) []]
+-- >>> (element_ "br" [])
+-- Markup {elements = [Node {rootLabel = OpenTag StartTag "br" [], subForest = []}]}
+element_ :: NameTag -> [Attr] -> Markup
+element_ n as = Markup [Node (OpenTag StartTag n as) []]
 
--- | Create a Markup element from a TagName and attributes that wraps some 'Content'.
+-- | Create a Markup element from a NameTag and attributes using EmptyElemTag, that doesn't wrap some other Markup. No checks are made on whether this creates well-formed Markup.
+--
+-- >>> emptyElem "br" []
+-- Markup {elements = [Node {rootLabel = OpenTag EmptyElemTag "br" [], subForest = []}]}
+emptyElem :: NameTag -> [Attr] -> Markup
+emptyElem n as = Markup [Node (OpenTag EmptyElemTag n as) []]
+
+-- | Create a Markup element from a NameTag and attributes that wraps some 'Content'.
 --
 -- >>> elementc "div" [] "content"
--- Markup {ttree = [Node {rootLabel = StartTag "div" [], subForest = [Node {rootLabel = Content "content", subForest = []}]}]}
-elementc :: TagName -> [Attr] -> ByteString -> Markup
+-- Markup {elements = [Node {rootLabel = OpenTag StartTag "div" [], subForest = [Node {rootLabel = Content "content", subForest = []}]}]}
+elementc :: NameTag -> [Attr] -> ByteString -> Markup
 elementc n as bs = element n as (content bs)
 
 -- | Create a Markup element from a bytestring, escaping the usual characters.
 --
 -- >>> content "<content>"
--- Markup {ttree = [Node {rootLabel = Content "&ltcontent&gt", subForest = []}]}
+-- Markup {elements = [Node {rootLabel = Content "&ltcontent&gt", subForest = []}]}
 content :: ByteString -> Markup
 content bs = Markup [pure $ Content (escape bs)]
 
 -- | Create a Markup element from a bytestring, not escaping the usual characters.
 --
 -- >>> contentRaw "<content>"
--- Markup {ttree = [Node {rootLabel = Content "<content>", subForest = []}]}
+-- Markup {elements = [Node {rootLabel = Content "<content>", subForest = []}]}
 --
--- >>> markup_ Html $ markdown Html Compact $ contentRaw "<content>"
+-- >>> markup_ Html $ markdown_ Compact Html $ contentRaw "<content>"
 -- *** Exception: UnclosedTag
 -- ...
 contentRaw :: ByteString -> Markup
@@ -448,7 +459,7 @@ type AttrValue = ByteString
 --
 -- >>> detokenize Html <$> tokenize_ Html [i|<input checked>|]
 -- ["<input checked=\"\">"]
-data Attr = Attr { attrName :: !AttrName, attrValue :: !AttrValue }
+data Attr = Attr {attrName :: !AttrName, attrValue :: !AttrValue}
   deriving (Generic, Show, Eq, Ord)
 
 instance NFData Attr
@@ -456,8 +467,7 @@ instance NFData Attr
 instance ToExpr Attr
 
 normTokenAttrs :: Token -> Token
-normTokenAttrs (StartTag n as) = StartTag n (normAttrs as)
-normTokenAttrs (EmptyElemTag n as) = EmptyElemTag n (normAttrs as)
+normTokenAttrs (OpenTag t n as) = OpenTag t n (normAttrs as)
 normTokenAttrs x = x
 
 -- | normalize an attribution list, removing duplicate AttrNames, and space concatenating class values.
@@ -483,7 +493,8 @@ normAttrs as =
 
 -- | render attributes
 renderAttrs :: [Attr] -> ByteString
-renderAttrs = B.unwords . fmap renderAttr
+renderAttrs [] = mempty
+renderAttrs xs = B.singleton ' ' <> (B.unwords . fmap renderAttr $ xs)
 
 -- | render an attribute
 --
@@ -493,22 +504,22 @@ renderAttr (Attr k v) = [i|#{k}="#{v}"|]
 
 -- | bytestring representation of 'Token'.
 --
--- >>> detokenize Html (StartTag "foo" [])
+-- >>> detokenize Html (OpenTag StartTag "foo" [])
 -- "<foo>"
 detokenize :: Standard -> Token -> ByteString
 detokenize s = \case
-  (StartTag n []) -> [i|<#{n}>|]
-  (StartTag n as) -> [i|<#{n} #{renderAttrs as}>|]
-  (EmptyElemTag n as) ->
+  (OpenTag StartTag n []) -> [i|<#{n}>|]
+  (OpenTag StartTag n as) -> [i|<#{n}#{renderAttrs as}>|]
+  (OpenTag EmptyElemTag n as) ->
     bool
-      [i|<#{n} #{renderAttrs as}/>|]
-      [i|<#{n} #{renderAttrs as} />|]
+      [i|<#{n}#{renderAttrs as}/>|]
+      [i|<#{n}#{renderAttrs as} />|]
       (s == Html)
   (EndTag n) -> [i|</#{n}>|]
   (Content t) -> t
   (Comment t) -> [i|<!--#{t}-->|]
   (Doctype t) -> [i|<!#{t}>|]
-  (Decl t as) -> bool [i|<?#{t} #{renderAttrs as}?>|] [i|<!#{t}!>|] (s == Html)
+  (Decl t as) -> bool [i|<?#{t}#{renderAttrs as}?>|] [i|<!#{t}!>|] (s == Html)
 
 -- | Indented 0 puts newlines in between the tags.
 data RenderStyle = Compact | Indented Int deriving (Eq, Show, Generic)
@@ -526,29 +537,36 @@ finalConcat (Indented _) =
 
 -- | Convert 'Markup' to bytestrings
 --
--- >>> B.putStr $ markdown Html (Indented 4) (markup_ Html [i|<foo><br></foo>|])
+-- >>> markdown (Indented 4) Html (markup_ Html [i|<foo><br></foo>|])
+-- That "<foo>\n    <br>\n</foo>"
+markdown :: RenderStyle -> Standard -> Markup -> Warn ByteString
+markdown r s m = second (finalConcat r) $ concatWarns $ foldTree (renderBranch r s) <$> (elements $ normContent m)
+
+-- | Convert 'Markup' to 'ByteString' and error on warnings.
+--
+-- >>> B.putStr $ markdown_ (Indented 4) Html (markup_ Html [i|<foo><br></foo>|])
 -- <foo>
 --     <br>
 -- </foo>
-markdown :: Standard -> RenderStyle -> Markup -> ByteString
-markdown std r m =
-  finalConcat r $ mconcat $ foldTree (renderBranch r std) <$> (ttree $ normContent m)
+markdown_ :: RenderStyle -> Standard -> Markup -> ByteString
+markdown_ r s = markdown r s >>> warnError
 
 -- note that renderBranch adds in EndTags for StartTags when needed
-renderBranch :: RenderStyle -> Standard -> Token -> [[ByteString]] -> [ByteString]
-renderBranch r std s@(StartTag n _) children
+renderBranch :: RenderStyle -> Standard -> Token -> [Warn [ByteString]] -> Warn [ByteString]
+renderBranch r std s@(OpenTag StartTag n _) xs
   | n `elem` selfClosers && std == Html =
-      [detokenize std s] <> indentChildren r (mconcat children)
+      That [detokenize std s] <> second (indentChildren r) (concatWarns xs)
   | otherwise =
-      [detokenize std s] <> indentChildren r (mconcat children) <> [detokenize std (EndTag n)]
-renderBranch r std x children =
-  -- ignoring that this should be an error
-  [detokenize std x] <> indentChildren r (mconcat children)
+      That [detokenize std s] <> second (indentChildren r) (concatWarns xs) <> That [detokenize std (EndTag n)]
+renderBranch _ std x [] =
+  That [detokenize std x]
+renderBranch r std x xs =
+  These [LeafWithChildren] [detokenize std x] <> second (indentChildren r) (concatWarns xs)
 
 -- | Normalise Content in Markup, concatenating adjacent Content, and removing mempty Content.
 --
 -- >>> normContent $ content "a" <> content "" <> content "b"
--- Markup {ttree = [Node {rootLabel = Content "ab", subForest = []}]}
+-- Markup {elements = [Node {rootLabel = Content "ab", subForest = []}]}
 normContent :: Markup -> Markup
 normContent (Markup trees) = Markup $ foldTree (\x xs -> Node x (filter ((/= Content "") . rootLabel) $ concatContent xs)) <$> concatContent trees
 
@@ -561,9 +579,9 @@ concatContent = \case
 -- | Gather together token trees from a token list, placing child elements in nodes and removing EndTags.
 --
 -- >>> gather Html =<< tokenize Html "<foo class=\"bar\">baz</foo>"
--- That [Node {rootLabel = StartTag "foo" [Attr {attrName = "class", attrValue = "bar"}], subForest = [Node {rootLabel = Content "baz", subForest = []}]}]
-gather :: Standard -> [Token] -> Warn [Tree Token]
-gather s ts =
+-- That (Markup {elements = [Node {rootLabel = OpenTag StartTag "foo" [Attr {attrName = "class", attrValue = "bar"}], subForest = [Node {rootLabel = Content "baz", subForest = []}]}]})
+gather :: Standard -> [Token] -> Warn Markup
+gather s ts = second Markup $
   case (finalSibs, finalParents, warnings) of
     (sibs, [], []) -> That (reverse sibs)
     ([], [], xs) -> This xs
@@ -574,20 +592,20 @@ gather s ts =
       foldl' (\(c, xs) t -> incCursor s t c & second (maybeToList >>> (<> xs))) (Cursor [] [], []) ts
 
 -- | gather but errors on warnings.
-gather_ :: Standard -> [Token] -> [Tree Token]
+gather_ :: Standard -> [Token] -> Markup
 gather_ s ts = gather s ts & warnError
 
 incCursor :: Standard -> Token -> Cursor -> (Cursor, Maybe MarkupWarning)
 -- Only StartTags are ever pushed on to the parent list, here:
-incCursor Xml t@(StartTag _ _) (Cursor ss ps) = (Cursor [] ((t, ss) : ps), Nothing)
-incCursor Html t@(StartTag n _) (Cursor ss ps) =
+incCursor Xml t@(OpenTag StartTag _ _) (Cursor ss ps) = (Cursor [] ((t, ss) : ps), Nothing)
+incCursor Html t@(OpenTag StartTag n _) (Cursor ss ps) =
   (bool (Cursor [] ((t, ss) : ps)) (Cursor (Node t [] : ss) ps) (n `elem` selfClosers), Nothing)
-incCursor Xml t@(EmptyElemTag _ _) (Cursor ss ps) = (Cursor (Node t [] : ss) ps, Nothing)
-incCursor Html t@(EmptyElemTag n _) (Cursor ss ps) =
+incCursor Xml t@(OpenTag EmptyElemTag _ _) (Cursor ss ps) = (Cursor (Node t [] : ss) ps, Nothing)
+incCursor Html t@(OpenTag EmptyElemTag n _) (Cursor ss ps) =
   ( Cursor (Node t [] : ss) ps,
     bool (Just BadEmptyElemTag) Nothing (n `elem` selfClosers)
   )
-incCursor _ (EndTag n) (Cursor ss ((p@(StartTag n' _), ss') : ps)) =
+incCursor _ (EndTag n) (Cursor ss ((p@(OpenTag StartTag n' _), ss') : ps)) =
   ( Cursor (Node p (reverse ss) : ss') ps,
     bool (Just (TagMismatch n n')) Nothing (n == n')
   )
@@ -612,34 +630,34 @@ data Cursor = Cursor
 -- | Convert a markup into a token list, adding end tags.
 --
 -- >>> degather Html =<< markup Html "<foo class=\"bar\">baz</foo>"
--- That [StartTag "foo" [Attr {attrName = "class", attrValue = "bar"}],Content "baz",EndTag "foo"]
+-- That [OpenTag StartTag "foo" [Attr {attrName = "class", attrValue = "bar"}],Content "baz",EndTag "foo"]
 degather :: Standard -> Markup -> Warn [Token]
-degather s (Markup tree) = rconcats $ foldTree (addCloseTags s) <$> tree
+degather s (Markup tree) = concatWarns $ foldTree (addCloseTags s) <$> tree
 
 -- | degather but errors on warning
 degather_ :: Standard -> Markup -> [Token]
 degather_ s m = degather s m & warnError
 
-rconcats :: [Warn [a]] -> Warn [a]
-rconcats rs = case bimap mconcat mconcat $ partitionHereThere rs of
+concatWarns :: [Warn [a]] -> Warn [a]
+concatWarns rs = case bimap mconcat mconcat $ partitionHereThere rs of
   ([], xs) -> That xs
   (es, []) -> This es
   (es, xs) -> These es xs
 
 addCloseTags :: Standard -> Token -> [Warn [Token]] -> Warn [Token]
-addCloseTags std s@(StartTag n _) children
+addCloseTags std s@(OpenTag StartTag n _) children
   | children /= [] && n `elem` selfClosers && std == Html =
-      These [SelfCloserWithChildren] [s] <> rconcats children
+      These [SelfCloserWithChildren] [s] <> concatWarns children
   | n `elem` selfClosers && std == Html =
-      That [s] <> rconcats children
+      That [s] <> concatWarns children
   | otherwise =
-      That [s] <> rconcats children <> That [EndTag n]
+      That [s] <> concatWarns children <> That [EndTag n]
 addCloseTags _ x xs = case xs of
   [] -> That [x]
-  cs -> These [LeafWithChildren] [x] <> rconcats cs
+  cs -> These [LeafWithChildren] [x] <> concatWarns cs
 
-tokenXmlP:: Parser e Token
-tokenXmlP=
+tokenXmlP :: Parser e Token
+tokenXmlP =
   $( switch
        [|
          case _ of
@@ -653,7 +671,7 @@ tokenXmlP=
    )
 
 -- [4]
-nameStartCharP:: Parser e Char
+nameStartCharP :: Parser e Char
 nameStartCharP = fusedSatisfy isLatinLetter isNameStartChar isNameStartChar isNameStartChar
 
 isNameStartChar :: Char -> Bool
@@ -677,7 +695,7 @@ isNameStartChar x =
 
 -- [4a]
 nameCharP :: Parser e Char
-nameCharP= fusedSatisfy isNameCharAscii isNameCharExt isNameCharExt isNameCharExt
+nameCharP = fusedSatisfy isNameCharAscii isNameCharExt isNameCharExt isNameCharExt
 
 isNameCharAscii :: Char -> Bool
 isNameCharAscii x =
@@ -742,7 +760,7 @@ declXmlP = do
   st <- optional $ Attr "standalone" <$> xmlStandaloneP
   _ <- ws_
   _ <- $(string "?>")
-  pure $ Decl "xml" $ [av, en] <> (maybe [] (:[]) st)
+  pure $ Decl "xml" $ [av, en] <> maybeToList st
 
 -- | xml production [24]
 xmlVersionInfoP :: Parser e ByteString
@@ -797,8 +815,8 @@ startTagsXmlP = do
   $( switch
        [|
          case _ of
-           "/>" -> pure (EmptyElemTag n as)
-           ">" -> pure (StartTag n as)
+           "/>" -> pure (OpenTag EmptyElemTag n as)
+           ">" -> pure (OpenTag StartTag n as)
          |]
    )
 
@@ -846,8 +864,8 @@ startTagsHtmlP = do
   $( switch
        [|
          case _ of
-           "/>" -> pure (EmptyElemTag n as)
-           ">" -> pure (StartTag n as)
+           "/>" -> pure (OpenTag EmptyElemTag n as)
+           ">" -> pure (OpenTag StartTag n as)
          |]
    )
 

@@ -4,6 +4,7 @@
 
 module Main (main) where
 
+import Control.Monad
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as B
 import Data.Foldable
@@ -30,17 +31,17 @@ goldenTests =
   testGroup
     "examples"
     ( testExample
-        <$> [ (Xml, "other/line.svg"),
-              (Html, "other/ex1.html")
+        <$> [ (Compact, Xml, "other/line.svg"),
+              (Compact, Html, "other/ex1.html")
             ]
     )
 
-testExample :: (Standard, FilePath) -> TestTree
-testExample (s, fp) =
+testExample :: (RenderStyle, Standard, FilePath) -> TestTree
+testExample (r, s, fp) =
   goldenTest
     fp
     (getMarkupFile s fp)
-    (isoMarkdownMarkup s <$> getMarkupFile s fp)
+    (isoMarkdownMarkup r s <$> getMarkupFile s fp)
     (\expected actual -> pure (show . ansiWlEditExpr <$> patch expected actual))
     (\_ -> pure ())
 
@@ -50,8 +51,8 @@ getMarkupFile s fp = do
   pure $ warnError $ markup s bs
 
 -- round trip markdown >>> markup
-isoMarkdownMarkup :: Standard -> Markup -> Markup
-isoMarkdownMarkup s m = m & markdown s Compact & markup s & warnError
+isoMarkdownMarkup :: RenderStyle -> Standard -> Markup -> Markup
+isoMarkdownMarkup r s m = m & (markdown r s >=> markup s) & warnError
 
 -- patch testing
 printPatchExamples :: IO ()

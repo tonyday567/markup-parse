@@ -78,12 +78,12 @@ main = do
           warnError
             <$> ffap "markup" (markup Xml) bs
         _ <- ffap "normalize" normalize m
-        _ <- ffap "markdown" (markdown Xml Compact) m
+        _ <- ffap "markdown" (markdown Compact Xml) m
         pure ()
     RunMarkup -> do
       bs <- B.readFile f
       reportMainWith rep (show r) $ do
-        fap "markup" (length . ttree . markup_ Xml) bs
+        fap "markup" (length . elements . markup_ Xml) bs
     RunWhitespace -> do
       reportMainWith rep (show r) (wsFap " \n\nx")
     RunWrappedQ -> do
@@ -102,10 +102,10 @@ main = do
         _ <- ffap "html-parse tokens" (length . HP.parseTokens) t
         _ <- ffap "html-parse tree" (either undefined length . HP.tokensToForest) ts'
         _ <- ffap "tokenize" (length . tokenize Xml) bs
-        _ <- ffap "gather" (length . gather_ Xml) ts
-        _ <- ffap "markup" (length . ttree. markup_ Xml) bs
+        _ <- ffap "gather" (length . elements . gather_ Xml) ts
+        _ <- ffap "markup" (length . elements . markup_ Xml) bs
         _ <- ffap "normalize" normalize m
-        _ <- ffap "markdown" (markdown Xml Compact) m
+        _ <- ffap "markdown" (markdown Compact Xml) m
         pure ()
 
 -- | Consume whitespace.
