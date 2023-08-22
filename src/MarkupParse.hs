@@ -201,9 +201,7 @@ data MarkupWarning
 showWarnings :: [MarkupWarning] -> String
 showWarnings = List.nub >>> fmap show >>> unlines
 
--- | A synonym for These [MarkupWarning] which is the structure of some functions.
---
--- A common computation pipeline is to take advantage of the 'These' Monad instance eg
+-- | A type synonym for the common returning type of many functions. A common computation pipeline is to take advantage of the 'These' Monad instance eg
 --
 -- > markup s bs = bs & (tokenize s >=> gather s) & second (Markup s)
 type Warn a = These [MarkupWarning] a
@@ -241,7 +239,7 @@ markup s bs = bs & (tokenize s >=> gather s)
 markup_ :: Standard -> ByteString -> Markup
 markup_ s bs = markup s bs & warnError
 
--- | concatenate sequential content, and normalize attributes; unwording class values and removing duplicate attributes (taking last).
+-- | Concatenate sequential content and normalize attributes; unwording class values and removing duplicate attributes (taking last).
 --
 -- >>> B.putStr $ warnError $ markdown Compact Xml $ normalize (markup_ Xml [i|<foo class="a" class="b" bar="first" bar="last"/>|])
 -- <foo bar="last" class="a b"/>
@@ -252,7 +250,7 @@ normalize m = normContent $ Markup $ fmap (fmap normTokenAttrs) (elements m)
 isWellFormed :: Standard -> Markup -> Bool
 isWellFormed s = (== []) . wellFormed s
 
--- | Check for well-formedness and rerturn warnings encountered.
+-- | Check for well-formedness and return warnings encountered.
 --
 -- >>> wellFormed Html $ Markup [Node (Comment "") [], Node (EndTag "foo") [], Node (OpenTag EmptyElemTag "foo" []) [Node (Content "bar") []], Node (OpenTag EmptyElemTag "foo" []) []]
 -- [EmptyContent,EndTagInTree,LeafWithChildren,BadEmptyElemTag]
