@@ -419,12 +419,12 @@ element_ n as = Markup [Node (OpenTag StartTag n as) []]
 emptyElem :: NameTag -> [Attr] -> Markup
 emptyElem n as = Markup [Node (OpenTag EmptyElemTag n as) []]
 
--- | Create a Markup element from a NameTag and attributes that wraps some 'Content'.
+-- | Create a Markup element from a NameTag and attributes that wraps some 'Content'. No escaping is performed.
 --
 -- >>> elementc "div" [] "content"
 -- Markup {elements = [Node {rootLabel = OpenTag StartTag "div" [], subForest = [Node {rootLabel = Content "content", subForest = []}]}]}
 elementc :: NameTag -> [Attr] -> ByteString -> Markup
-elementc n as bs = element n as (content bs)
+elementc n as bs = element n as (contentRaw bs)
 
 -- | Create a Markup element from a bytestring, escaping the usual characters.
 --
