@@ -320,14 +320,15 @@ data Token
 
 -- | Escape a single character.
 escapeChar :: Char -> ByteString
-escapeChar '<' = "&lt"
-escapeChar '>' = "&gt"
-escapeChar '&' = "&amp"
-escapeChar '\'' = "&apos"
-escapeChar '"' = "&quot"
+escapeChar '<' = "&lt;"
+escapeChar '>' = "&gt;"
+escapeChar '&' = "&amp;"
+escapeChar '\'' = "&apos;"
+escapeChar '"' = "&quot;"
 escapeChar x = B.singleton x
 
 -- | Escape Content
+--
 --
 -- >>> escape [i|<foo class="a" bar='b'>|]
 -- "&ltfoo class=&quota&quot bar=&aposb&apos&gt"
