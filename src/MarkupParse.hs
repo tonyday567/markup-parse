@@ -331,7 +331,7 @@ escapeChar x = B.singleton x
 --
 --
 -- >>> escape [i|<foo class="a" bar='b'>|]
--- "&ltfoo class=&quota&quot bar=&aposb&apos&gt"
+-- "&lt;foo class=&quot;a&quot; bar=&apos;b&apos;&gt;"
 escape :: ByteString -> ByteString
 escape bs = B.concatMap escapeChar bs
 
@@ -430,7 +430,7 @@ elementc n as bs = element n as (contentRaw bs)
 -- | Create a Markup element from a bytestring, escaping the usual characters.
 --
 -- >>> content "<content>"
--- Markup {elements = [Node {rootLabel = Content "&ltcontent&gt", subForest = []}]}
+-- Markup {elements = [Node {rootLabel = Content "&lt;content&gt;", subForest = []}]}
 content :: ByteString -> Markup
 content bs = Markup [pure $ Content (escape bs)]
 
