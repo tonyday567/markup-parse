@@ -7,7 +7,7 @@
 
 * Development
 
-#+begin_src haskell :results output
+#+begin_src haskell :results output :exports both
 :r
 :set prompt "> "
 :set -Wno-type-defaults
@@ -44,7 +44,7 @@ C.length bs
 
 * Main Pipeline types
 
-#+begin_src haskell :results output
+#+begin_src haskell :results output :exports both
 :t tokenize Html
 :t gather Html
 :t normalize
@@ -64,7 +64,7 @@ C.length bs
 
 Round trip equality
 
-#+begin_src haskell :results output
+#+begin_src haskell :results output :exports both
 m = markup_ Xml bs
 m == (markup_ Xml $ markdown_ Compact Xml m)
 #+end_src
@@ -76,7 +76,7 @@ m == (markup_ Xml $ markdown_ Compact Xml m)
 
 Obviously, patch doesn't belong here long-term but has been very useful in testing and development.
 
-#+begin_src haskell :results output
+#+begin_src haskell :results output :exports both
 showPatch $ patch [1, 2, 3, 5] [0, 1, 2, 4, 6]
 #+end_src
 
@@ -85,7 +85,7 @@ showPatch $ patch [1, 2, 3, 5] [0, 1, 2, 4, 6]
 
 * wiki diff test debug
 
-#+begin_src haskell :results output
+#+begin_src haskell :results output :exports both
 bs <- B.readFile "other/Parsing - Wikipedia.html"
 m = markup_ Html bs
 m == (markup_ Html $ markdown_ Compact Html m)
@@ -118,7 +118,7 @@ The [[https://hackage.haskell.org/package/perf][perf]] library has been used to 
 
 `cabal bench` runs the default benchmarking:
 
-#+begin_src sh :results output
+#+begin_src sh :results output :exports both
 cabal bench
 #+end_src
 
