@@ -1,1 +1,1 @@
-fromList [(["gather","time"],73574.444),(["html-parse tokens","time"],1089609.203),(["html-parse tree","time"],62671.217),(["markdown","time"],356583.283),(["markup","time"],472117.175),(["normalize","time"],243081.43),(["tokenize","time"],813703.722)]
+fromList [(["gather","time"],93283.273),(["html-parse tokens","time"],1214077.358),(["html-parse tree","time"],66142.917),(["markdown","time"],374892.74),(["markup","time"],471643.778),(["normalize","time"],279571.587),(["tokenize","time"],858609.084)]

@@ -21,7 +21,7 @@ import Prelude
 -- >>> :set -XOverloadedStrings
 -- >>> import MarkupParse.Patch
 
--- | compare a markup file with a round-trip transformation.
+-- | Compare a file with a round-trip transformation.
 goldenPatch :: (ToExpr a) => (FilePath -> IO a) -> (a -> a) -> FilePath -> TestTree
 goldenPatch f testf fp =
   goldenTest

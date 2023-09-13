@@ -33,7 +33,7 @@ module MarkupParse
     warnEither,
     warnMaybe,
 
-    -- * element creation
+    -- * Element
     Element,
     element,
     element_,
@@ -45,12 +45,12 @@ module MarkupParse
     -- * Token components
     NameTag,
     selfClosers,
-    addAttrs,
     doctypeHtml,
     doctypeXml,
     AttrName,
     AttrValue,
     Attr (..),
+    addAttrs,
     attrsP,
     nameP,
 
@@ -129,7 +129,7 @@ import Prelude hiding (replicate)
 --
 -- @'markdown_' . 'markup_'@ is an isomorphic round trip from 'Markup' to 'ByteString' to 'Markup':
 --
--- - This is subject to the Markup being 'wellFormed'.
+-- - This is subject to the 'Markup' being 'wellFormed'.
 --
 -- - The round-trip @'markup_' . 'markdown_'@ is not isomorphic as parsing forgets whitespace within tags, comments and declarations.
 --
@@ -149,7 +149,7 @@ import Prelude hiding (replicate)
 --
 -- - 'normalize' concatenates content, and normalizes attributes,
 --
--- > degather >=>
+-- > degather Html >=>
 --
 -- - 'degather' turns the markup tree back into a token list. Finally,
 --
@@ -157,7 +157,7 @@ import Prelude hiding (replicate)
 --
 -- - 'detokenize' turns a token back into a bytestring.
 --
--- Along the way, the kleisi fishies and compose forward usage accumulates any warnings via the 'These' monad instance.
+-- Along the way, the kleisi fishies and compose forward usage accumulates any warnings via the 'These' monad instance, which is wrapped into a type synonym named 'Warn'.
 
 -- | From a parsing pov, Html & Xml (& Svg) are close enough that they share a lot of parsing logic, so that parsing and printing just need some tweaking.
 --
@@ -187,7 +187,7 @@ data MarkupWarning
     TagMismatch NameTag NameTag
   | -- | An EndTag with no corresponding StartTag.
     UnmatchedEndTag
-  | -- | An EndTag with corresponding StartTag.
+  | -- | An StartTag with no corresponding EndTag.
     UnclosedTag
   | -- | An EndTag should never appear in 'Markup'
     EndTagInTree
@@ -235,7 +235,7 @@ warnMaybe = these (const Nothing) Just (\_ a -> Just a)
 markup :: Standard -> ByteString -> Warn Markup
 markup s bs = bs & (tokenize s >=> gather s)
 
--- | markup but errors on warnings.
+-- | 'markup' but errors on warnings.
 markup_ :: Standard -> ByteString -> Markup
 markup_ s bs = markup s bs & warnError
 
@@ -278,7 +278,15 @@ type NameTag = ByteString
 -- | Whether an opening tag is a start tag or an empty element tag.
 data OpenTagType = StartTag | EmptyElemTag deriving (Show, Ord, Eq, Generic, NFData, ToExpr)
 
--- | A Markup token
+-- | A Markup token. The term is borrowed from <https://www.w3.org/html/wg/spec/tokenization.html#tokenization HTML> standards but is used across 'Html' and 'Xml' in this library.
+--
+-- Note that the 'Token' type is used in two slightly different contexts:
+--
+-- - As an intermediary representation of markup between 'ByteString' and 'Markup'.
+--
+-- - As the primitives of 'Markup' 'Element's
+--
+-- Specifically, an 'EndTag' will occur in a list of tokens, but not as a primitive in 'Markup'. It may turn out to be better to have two different types for these two uses and future iterations of this library may head in this direction.
 --
 -- >>> runParser_ (many (tokenP Html)) [i|<foo>content</foo>|]
 -- [OpenTag StartTag "foo" [],Content "content",EndTag "foo"]
@@ -320,21 +328,31 @@ data Token
 
 -- | Escape a single character.
 escapeChar :: Char -> ByteString
-escapeChar '<' = "&lt"
-escapeChar '>' = "&gt"
-escapeChar '&' = "&amp"
-escapeChar '\'' = "&apos"
-escapeChar '"' = "&quot"
+escapeChar '<' = "&lt;"
+escapeChar '>' = "&gt;"
+escapeChar '&' = "&amp;"
+escapeChar '\'' = "&apos;"
+escapeChar '"' = "&quot;"
 escapeChar x = B.singleton x
 
--- | Escape Content
+-- | Escape the following predefined character entity references:
+--
+-- @
+-- escapeChar \'<\' = "&lt;"
+-- escapeChar \'>\' = "&gt;"
+-- escapeChar \'&\' = "&amp;"
+-- escapeChar '\'' = "&apos;"
+-- escapeChar '"' = "&quot;"
+-- @
+--
+-- No attempt is made to meet the <https://en.wikipedia.org/wiki/List_of_XML_and_HTML_character_entity_references HTML Standards>
 --
 -- >>> escape [i|<foo class="a" bar='b'>|]
--- "&ltfoo class=&quota&quot bar=&aposb&apos&gt"
+-- "&lt;foo class=&quot;a&quot; bar=&apos;b&apos;&gt;"
 escape :: ByteString -> ByteString
 escape bs = B.concatMap escapeChar bs
 
--- | Append attributes to the existing Token attribute list.
+-- | Append attributes to an existing Token attribute list. Returns Nothing for tokens that do not have attributes.
 addAttrs :: [Attr] -> Token -> Maybe Token
 addAttrs as (OpenTag t n as') = Just $ OpenTag t n (as <> as')
 addAttrs _ _ = Nothing
@@ -395,41 +413,41 @@ selfClosers =
     "wbr"
   ]
 
--- | Most functions return a 'Markup' rather than an 'Element' because it is more ergonimc to use the free monoid wrap (aka a list) in preference to returning a 'Maybe Element', say.
+-- | Most functions return a 'Markup' rather than an 'Element' because it is often more ergonomic to use the free monoid (aka a list) in preference to returning a 'Maybe' 'Element' (say).
 type Element = Tree Token
 
--- | Create a Markup element from a NameTag and attributes that wraps some other Markup.
+-- | Create 'Markup' from a name tag and attributes that wraps some other markup.
 --
 -- >>> element "div" [] (element_ "br" [])
 -- Markup {elements = [Node {rootLabel = OpenTag StartTag "div" [], subForest = [Node {rootLabel = OpenTag StartTag "br" [], subForest = []}]}]}
 element :: NameTag -> [Attr] -> Markup -> Markup
 element n as (Markup xs) = Markup [Node (OpenTag StartTag n as) xs]
 
--- | Create a Markup element from a NameTag and attributes that doesn't wrap some other Markup. OpenTagType is StartTag. Use 'emptyElem' if you want to create a EmptyElemTag.
+-- | Create 'Markup' from a name tag and attributes that doesn't wrap some other markup. The 'OpenTagType' used is 'StartTag'. Use 'emptyElem' if you want to create 'EmptyElemTag' based markup.
 --
 -- >>> (element_ "br" [])
 -- Markup {elements = [Node {rootLabel = OpenTag StartTag "br" [], subForest = []}]}
 element_ :: NameTag -> [Attr] -> Markup
 element_ n as = Markup [Node (OpenTag StartTag n as) []]
 
--- | Create a Markup element from a NameTag and attributes using EmptyElemTag, that doesn't wrap some other Markup. No checks are made on whether this creates well-formed Markup.
+-- | Create 'Markup' from a name tag and attributes using 'EmptyElemTag', that doesn't wrap some other markup. No checks are made on whether this creates well-formed markup.
 --
 -- >>> emptyElem "br" []
 -- Markup {elements = [Node {rootLabel = OpenTag EmptyElemTag "br" [], subForest = []}]}
 emptyElem :: NameTag -> [Attr] -> Markup
 emptyElem n as = Markup [Node (OpenTag EmptyElemTag n as) []]
 
--- | Create a Markup element from a NameTag and attributes that wraps some 'Content'. No escaping is performed.
+-- | Create 'Markup' from a name tag and attributes that wraps some 'Content'. No escaping is performed.
 --
 -- >>> elementc "div" [] "content"
 -- Markup {elements = [Node {rootLabel = OpenTag StartTag "div" [], subForest = [Node {rootLabel = Content "content", subForest = []}]}]}
 elementc :: NameTag -> [Attr] -> ByteString -> Markup
 elementc n as bs = element n as (contentRaw bs)
 
--- | Create a Markup element from a bytestring, escaping the usual characters.
+-- | Create 'Markup' 'Content' from a bytestring, escaping the usual characters.
 --
 -- >>> content "<content>"
--- Markup {elements = [Node {rootLabel = Content "&ltcontent&gt", subForest = []}]}
+-- Markup {elements = [Node {rootLabel = Content "&lt;content&gt;", subForest = []}]}
 content :: ByteString -> Markup
 content bs = Markup [pure $ Content (escape bs)]
 
@@ -519,7 +537,7 @@ detokenize s = \case
   (Doctype t) -> [i|<!#{t}>|]
   (Decl t as) -> bool [i|<?#{t}#{renderAttrs as}?>|] [i|<!#{t}!>|] (s == Html)
 
--- | Indented 0 puts newlines in between the tags.
+-- | @Indented 0@ puts newlines in between the tags.
 data RenderStyle = Compact | Indented Int deriving (Eq, Show, Generic)
 
 indentChildren :: RenderStyle -> [ByteString] -> [ByteString]
@@ -589,7 +607,7 @@ gather s ts = second Markup $
     (Cursor finalSibs finalParents, warnings) =
       foldl' (\(c, xs) t -> incCursor s t c & second (maybeToList >>> (<> xs))) (Cursor [] [], []) ts
 
--- | gather but errors on warnings.
+-- | 'gather' but errors on warnings.
 gather_ :: Standard -> [Token] -> Markup
 gather_ s ts = gather s ts & warnError
 
@@ -632,7 +650,7 @@ data Cursor = Cursor
 degather :: Standard -> Markup -> Warn [Token]
 degather s (Markup tree) = concatWarns $ foldTree (addCloseTags s) <$> tree
 
--- | degather but errors on warning
+-- | 'degather' but errors on warning
 degather_ :: Standard -> Markup -> [Token]
 degather_ s m = degather s m & warnError
 
@@ -785,13 +803,13 @@ doctypeXmlP =
       )
     <* $(char '>')
 
--- | Xml production [32]
+-- | xml production [32]
 xmlStandaloneP :: Parser e ByteString
 xmlStandaloneP =
   byteStringOf $
     ws_ *> $(string "standalone") *> eq *> xmlYesNoP
 
--- | Xml yes/no
+-- | xml yes/no
 xmlYesNoP :: Parser e ByteString
 xmlYesNoP = wrappedQNoGuard (byteStringOf $ $(string "yes") <|> $(string "no"))
 
