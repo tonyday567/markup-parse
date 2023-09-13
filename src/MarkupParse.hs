@@ -149,7 +149,7 @@ import Prelude hiding (replicate)
 --
 -- - 'normalize' concatenates content, and normalizes attributes,
 --
--- > degather >=>
+-- > degather Html >=>
 --
 -- - 'degather' turns the markup tree back into a token list. Finally,
 --
