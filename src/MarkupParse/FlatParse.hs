@@ -3,21 +3,21 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 
--- | Various flatparse helpers and combinators.
+-- | Various <https://hackage.haskell.org/package/flatparse flatparse> helpers and combinators.
 module MarkupParse.FlatParse
-  ( -- * parsing
+  ( -- * Parsing
     ParserWarning (..),
     runParserMaybe,
     runParserEither,
     runParserWarn,
     runParser_,
 
-    -- * flatparse re-exports
+    -- * Flatparse re-exports
     runParser,
     Parser,
     Result (..),
 
-    -- * parsers
+    -- * Parsers
     isWhitespace,
     ws_,
     ws,
@@ -60,7 +60,7 @@ import Prelude hiding (replicate)
 -- >>> import MarkupParse.FlatParse
 -- >>> import FlatParse.Basic
 
--- | run a Parser, throwing away leftovers. Nothing on 'Fail' or 'Err'.
+-- | Run a Parser, throwing away leftovers. Nothing on 'Fail' or 'Err'.
 --
 -- >>> runParserMaybe ws "x"
 -- Nothing
@@ -73,7 +73,7 @@ runParserMaybe p b = case runParser p b of
   Fail -> Nothing
   Err _ -> Nothing
 
--- | run a Parser, throwing away leftovers. Returns Left on 'Fail' or 'Err'.
+-- | Run a Parser, throwing away leftovers. Returns Left on 'Fail' or 'Err'.
 --
 -- >>> runParserEither ws " x"
 -- Right ' '
@@ -175,14 +175,14 @@ ws = satisfy isWhitespace
 wss :: Parser e ByteString
 wss = byteStringOf $ some ws
 
--- | single quote
+-- | Single quote
 --
 -- >>> runParserMaybe sq "'"
 -- Just ()
 sq :: ParserT st e ()
 sq = $(char '\'')
 
--- | double quote
+-- | Double quote
 --
 -- >>> runParserMaybe dq "\""
 -- Just ()
@@ -256,14 +256,14 @@ eq :: Parser e ()
 eq = ws_ *> $(char '=') <* ws_
 {-# INLINE eq #-}
 
--- | some with a separator
+-- | Some with a separator.
 --
 -- >>> runParser (sep ws (many (satisfy (/= ' ')))) "a b c"
 -- OK ["a","b","c"] ""
 sep :: Parser e s -> Parser e a -> Parser e [a]
 sep s p = (:) <$> p <*> many (s *> p)
 
--- | parser bracketed by two other parsers
+-- | Parser bracketed by two other parsers.
 --
 -- >>> runParser (bracketed ($(char '[')) ($(char ']')) (many (satisfy (/= ']')))) "[bracketed]"
 -- OK "bracketed" ""
@@ -271,14 +271,14 @@ bracketed :: Parser e b -> Parser e b -> Parser e a -> Parser e a
 bracketed o c p = o *> p <* c
 {-# INLINE bracketed #-}
 
--- | Bracketed by square brackets.
+-- | Parser bracketed by square brackets.
 --
 -- >>> runParser bracketedSB "[bracketed]"
 -- OK "bracketed" ""
 bracketedSB :: Parser e [Char]
 bracketedSB = bracketed $(char '[') $(char ']') (many (satisfy (/= ']')))
 
--- | parser wrapped by another parser
+-- | Parser wrapped by another parser.
 --
 -- >>> runParser (wrapped ($(char '"')) (many (satisfy (/= '"')))) "\"wrapped\""
 -- OK "wrapped" ""
@@ -288,12 +288,12 @@ wrapped x p = bracketed x x p
 
 -- | A single digit
 --
--- runParserMaybe digit "5"
+-- >>> runParserMaybe digit "5"
 -- Just 5
 digit :: Parser e Int
 digit = (\c -> ord c - ord '0') <$> satisfyAscii isDigit
 
--- | (unsigned) Int parser
+-- | An (unsigned) 'Int' parser
 --
 -- >>> runParserMaybe int "567"
 -- Just 567
@@ -307,7 +307,8 @@ int = do
 digits :: Parser e (Int, Int)
 digits = chainr (\n (!place, !acc) -> (place * 10, acc + place * n)) digit (pure (1, 0))
 
--- |
+-- | A 'Double' parser.
+--
 -- >>> runParser double "1.234x"
 -- OK 1.234 "x"
 --
@@ -341,6 +342,7 @@ minus :: Parser e ()
 minus = $(char '-')
 
 -- | Parser for a signed prefix to a number.
+--
 -- >>> runParser (signed double) "-1.234x"
 -- OK (-1.234) "x"
 signed :: (Num b) => Parser e b -> Parser e b
@@ -350,6 +352,9 @@ signed p = do
     Nothing -> p
     Just () -> negate <$> p
 
--- | comma parser
+-- | Comma parser
+--
+-- >>> runParserMaybe comma ","
+-- Just ()
 comma :: Parser e ()
 comma = $(char ',')
