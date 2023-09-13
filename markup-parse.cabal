@@ -145,6 +145,6 @@ benchmark markup-parse-speed
         , markup-parse
         , optparse-applicative >=0.17 && <0.19
         , perf                 >=0.12 && <0.13
-        , text                 >=1.2 && <2.1
+        , text                 >=1.2 && <2.2
     ghc-options: -O2
     type: exitcode-stdio-1.0
