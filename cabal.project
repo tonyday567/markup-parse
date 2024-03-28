@@ -1,6 +1,2 @@
 packages: markup-parse.cabal
 
-allow-newer:
-  html-parse:base,
-  string-interpolate:template-haskell,
-  string-interpolate:text,
