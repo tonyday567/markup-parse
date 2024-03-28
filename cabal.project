@@ -1,4 +1,6 @@
 packages: markup-parse.cabal
 
-allow-newer: html-parse:base
-write-ghc-environment-files: always
+allow-newer:
+  html-parse:base,
+  string-interpolate:template-haskell,
+  string-interpolate:text,
