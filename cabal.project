@@ -1,2 +1,3 @@
 packages: markup-parse.cabal
 
+write-ghc-environment-files: always

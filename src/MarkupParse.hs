@@ -457,7 +457,7 @@ content bs = Markup [pure $ Content (escape bs)]
 -- Markup {elements = [Node {rootLabel = Content "<content>", subForest = []}]}
 --
 -- >>> markup_ Html $ markdown_ Compact Html $ contentRaw "<content>"
--- *** Exception: UnclosedTag
+-- Markup {elements = *** Exception: UnclosedTag
 -- ...
 contentRaw :: ByteString -> Markup
 contentRaw bs = Markup [pure $ Content bs]
