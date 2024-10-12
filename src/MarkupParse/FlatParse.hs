@@ -57,6 +57,7 @@ import Prelude hiding (replicate)
 
 -- $setup
 -- >>> :set -XTemplateHaskell
+-- >>> :set -XOverloadedStrings
 -- >>> import MarkupParse.FlatParse
 -- >>> import FlatParse.Basic
 
