@@ -1,6 +1,6 @@
 cabal-version: 3.0
 name: markup-parse
-version: 0.1.1.1
+version: 0.1.2.0
 license: BSD-3-Clause
 license-file: LICENSE
 copyright: Copyright, Tony Day, 2023-
@@ -14,9 +14,10 @@ description:
     A markup parser and printer, from and to strict bytestrings, optimised for speed.
 build-type: Simple
 tested-with:
-    , GHC == 9.10.1
-    , GHC == 9.6.5
-    , GHC == 9.8.2
+    , GHC == 9.6.7
+    , GHC == 9.8.4
+    , GHC == 9.10.2
+    , GHC == 9.12.2
 extra-doc-files:
     ChangeLog.md
     other/*.html
@@ -52,7 +53,7 @@ library
     build-depends:
         , base               >=4.14 && <5
         , bytestring         >=0.11.3 && <0.13
-        , containers         >=0.6 && <0.8
+        , containers         >=0.6 && <0.9
         , deepseq            >=1.4.4 && <1.6
         , flatparse          >=0.3.5 && <0.6
         , string-interpolate >=0.3 && <0.4
@@ -71,7 +72,7 @@ test-suite doctests
     hs-source-dirs: test
     build-depends:
         , base             >=4.14 && <5
-        , doctest-parallel >=0.3 && <0.4
+        , doctest-parallel >=0.3 && <0.5
     ghc-options: -threaded
     type: exitcode-stdio-1.0
 
