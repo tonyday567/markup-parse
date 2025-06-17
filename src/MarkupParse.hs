@@ -82,7 +82,18 @@ module MarkupParse
 
     -- * Tree support
     Tree (..),
-  )
+
+    -- * token parsing support
+    ParserWarning (..),
+    runParserWarn,
+    runParser_,
+
+    -- * Flatparse re-exports
+    runParser,
+    Parser,
+    Result (..),
+
+)
 where
 
 import Control.Category ((>>>))
@@ -101,19 +112,17 @@ import Data.Maybe
 import Data.String.Interpolate
 import Data.These
 import Data.Tree
-import Data.TreeDiff
-import FlatParse.Basic hiding (Result, cut, take)
+import FlatParse.Basic hiding (cut, take)
 import GHC.Generics
-import MarkupParse.FlatParse
 import Prelude hiding (replicate)
+import MarkupParse.Internal.FlatParse
 
 -- $setup
 -- >>> :set -XTemplateHaskell
 -- >>> :set -XQuasiQuotes
 -- >>> :set -XOverloadedStrings
 -- >>> import MarkupParse
--- >>> import MarkupParse.Patch
--- >>> import MarkupParse.FlatParse
+-- >>> import MarkupParse.Internal.FlatParse
 -- >>> import FlatParse.Basic
 -- >>> import Data.String.Interpolate
 -- >>> import Data.ByteString.Char8 qualified as B
@@ -164,7 +173,7 @@ import Prelude hiding (replicate)
 -- The xml parsing logic is based on the XML productions found in https://www.w3.org/TR/xml/
 --
 -- The html parsing was based on a reading of <https://hackage.haskell.org/package/html-parse html-parse>, but ignores the various '\x00' to '\xfffd' & eof directives that form part of the html standards.
-data Standard = Html | Xml deriving (Eq, Show, Ord, Generic, NFData, ToExpr)
+data Standard = Html | Xml deriving (Eq, Show, Ord, Generic, NFData)
 
 -- | A list of 'Element's or 'Tree' 'Token's
 --
@@ -172,7 +181,7 @@ data Standard = Html | Xml deriving (Eq, Show, Ord, Generic, NFData, ToExpr)
 -- That (Markup {elements = [Node {rootLabel = OpenTag StartTag "foo" [Attr {attrName = "class", attrValue = "bar"}], subForest = [Node {rootLabel = Content "baz", subForest = []}]}]})
 newtype Markup = Markup {elements :: [Element]}
   deriving stock (Show, Eq, Ord, Generic)
-  deriving anyclass (NFData, ToExpr)
+  deriving anyclass (NFData)
   deriving newtype (Semigroup, Monoid)
 
 -- | markup-parse generally tries to continue on parse errors, and return what has/can still be parsed, together with any warnings.
@@ -276,7 +285,7 @@ wellFormed s (Markup trees) = List.nub $ mconcat (foldTree checkNode <$> trees)
 type NameTag = ByteString
 
 -- | Whether an opening tag is a start tag or an empty element tag.
-data OpenTagType = StartTag | EmptyElemTag deriving (Show, Ord, Eq, Generic, NFData, ToExpr)
+data OpenTagType = StartTag | EmptyElemTag deriving (Show, Ord, Eq, Generic, NFData)
 
 -- | A Markup token. The term is borrowed from <https://www.w3.org/html/wg/spec/tokenization.html#tokenization HTML> standards but is used across 'Html' and 'Xml' in this library.
 --
@@ -324,7 +333,7 @@ data Token
     Decl !ByteString ![Attr]
   | -- | Contents of a doctype declaration.
     Doctype !ByteString
-  deriving (Show, Ord, Eq, Generic, NFData, ToExpr)
+  deriving (Show, Ord, Eq, Generic, NFData)
 
 -- | Escape a single character.
 escapeChar :: Char -> ByteString
@@ -479,8 +488,6 @@ data Attr = Attr {attrName :: !AttrName, attrValue :: !AttrValue}
   deriving (Generic, Show, Eq, Ord)
 
 instance NFData Attr
-
-instance ToExpr Attr
 
 normTokenAttrs :: Token -> Token
 normTokenAttrs (OpenTag t n as) = OpenTag t n (normAttrs as)
@@ -943,3 +950,49 @@ isBooleanAttrName x =
     isWhitespace x
       || (x == '/')
       || (x == '>')
+
+-- | Warnings covering leftovers, 'Err's and 'Fail'
+--
+-- >>> runParserWarn ws " x"
+-- These (ParserLeftover "x") ' '
+--
+-- >>> runParserWarn ws "x"
+-- This ParserUncaught
+--
+-- >>> runParserWarn (ws `cut` "no whitespace") "x"
+-- This (ParserError "no whitespace")
+data ParserWarning = ParserLeftover ByteString | ParserError ByteString | ParserUncaught deriving (Eq, Show, Ord, Generic, NFData)
+
+-- | Run parser, returning leftovers and errors as 'ParserWarning's.
+--
+-- >>> runParserWarn ws " "
+-- That ' '
+--
+-- >>> runParserWarn ws "x"
+-- This ParserUncaught
+--
+-- >>> runParserWarn ws " x"
+-- These (ParserLeftover "x") ' '
+runParserWarn :: Parser ByteString a -> ByteString -> These ParserWarning a
+runParserWarn p bs = case runParser p bs of
+  Err e -> This (ParserError e)
+  OK a "" -> That a
+  OK a x -> These (ParserLeftover $ B.take 200 x) a
+  Fail -> This ParserUncaught
+
+-- | Run parser, ignore leftovers, and error on Fail.
+--
+-- >>> runParser_ ws " "
+-- ' '
+--
+-- >>> runParser_ ws " x"
+-- ' '
+--
+-- >>> runParser_ ws "x"
+-- *** Exception: Uncaught parse failure
+-- ...
+runParser_ :: Parser ByteString a -> ByteString -> a
+runParser_ p bs = case runParser p bs of
+  Err e -> error (B.unpack e)
+  OK a _ -> a
+  Fail -> error "Uncaught parse failure"

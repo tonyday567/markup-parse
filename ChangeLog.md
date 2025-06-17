@@ -1,3 +1,12 @@
+0.2.0
+===
+
+- switched to Diff for testing round-trips
+- removed MarkupParse.Patch
+- renamed MarkupParse.FlatParse to MarkupParse.Internal.FlatParse and removed unused exports. Added non-stable note.
+- moved ParserWarn, runParser_ & runParserWarn to MarkupParse.
+- changed diff executable to markupparse-diff.
+
 0.1.1
 ===
 
