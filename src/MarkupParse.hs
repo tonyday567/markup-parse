@@ -92,8 +92,7 @@ module MarkupParse
     runParser,
     Parser,
     Result (..),
-
-)
+  )
 where
 
 import Control.Category ((>>>))
@@ -114,8 +113,8 @@ import Data.These
 import Data.Tree
 import FlatParse.Basic hiding (cut, take)
 import GHC.Generics
-import Prelude hiding (replicate)
 import MarkupParse.Internal.FlatParse
+import Prelude hiding (replicate)
 
 -- $setup
 -- >>> :set -XTemplateHaskell
