@@ -84,5 +84,5 @@ test-suite markupparse-diff
         , markup-parse
         , tasty              >=1.2 && <1.6
         , tasty-golden       >=2.3.1.1 && <2.4
-        , Diff               >1.0 && <1.1
+        , Diff               >=1.0 && <1.1
     type: exitcode-stdio-1.0
