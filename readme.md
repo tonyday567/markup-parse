@@ -1,7 +1,7 @@
 # markup-parse
 
 [![img](https://img.shields.io/hackage/v/markup-parse.svg)](https://hackage.haskell.org/package/markup-parse)
-[![img](https://github.com/tonyday567/markup-parse/workflows/haskell-ci/badge.svg)](https://github.com/tonyday567/markup-parse/actions?query=workflow%3Ahaskell-ci)
+[![img](https://github.com/tonyday567/markup-parse/actions/workflows/haskell-ci.yml/badge.svg)](https://github.com/tonyday567/markup-parse/actions/workflows/haskell-ci.yml)
 
 `markup-parse` parses and prints a subset of common XML & HTML structured data, from and to strict bytestrings
 
