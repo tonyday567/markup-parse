@@ -1,6 +1,3 @@
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -103,6 +100,7 @@ import Data.Bool
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as B
 import Data.Char hiding (isDigit)
+import Data.Data
 import Data.Foldable
 import Data.Function
 import Data.List qualified as List
@@ -172,16 +170,20 @@ import Prelude hiding (replicate)
 -- The xml parsing logic is based on the XML productions found in https://www.w3.org/TR/xml/
 --
 -- The html parsing was based on a reading of <https://hackage.haskell.org/package/html-parse html-parse>, but ignores the various '\x00' to '\xfffd' & eof directives that form part of the html standards.
-data Standard = Html | Xml deriving (Eq, Show, Ord, Generic, NFData)
+data Standard = Html | Xml
+  deriving stock (Eq, Ord, Show, Generic, Data)
+
+instance NFData Standard
 
 -- | A list of 'Element's or 'Tree' 'Token's
 --
 -- >>> markup Html "<foo class=\"bar\">baz</foo>"
 -- That (Markup {elements = [Node {rootLabel = OpenTag StartTag "foo" [Attr {attrName = "class", attrValue = "bar"}], subForest = [Node {rootLabel = Content "baz", subForest = []}]}]})
 newtype Markup = Markup {elements :: [Element]}
-  deriving stock (Show, Eq, Ord, Generic)
-  deriving anyclass (NFData)
+  deriving stock (Eq, Ord, Show, Generic, Data)
   deriving newtype (Semigroup, Monoid)
+
+instance NFData Markup
 
 -- | markup-parse generally tries to continue on parse errors, and return what has/can still be parsed, together with any warnings.
 data MarkupWarning
@@ -204,7 +206,9 @@ data MarkupWarning
   | -- | Badly formed declaration
     BadDecl
   | MarkupParser ParserWarning
-  deriving (Eq, Show, Ord, Generic, NFData)
+  deriving (Eq, Ord, Show, Generic, Data)
+
+instance NFData MarkupWarning
 
 showWarnings :: [MarkupWarning] -> String
 showWarnings = List.nub >>> fmap show >>> unlines
@@ -284,7 +288,10 @@ wellFormed s (Markup trees) = List.nub $ mconcat (foldTree checkNode <$> trees)
 type NameTag = ByteString
 
 -- | Whether an opening tag is a start tag or an empty element tag.
-data OpenTagType = StartTag | EmptyElemTag deriving (Show, Ord, Eq, Generic, NFData)
+data OpenTagType = StartTag | EmptyElemTag
+  deriving (Eq, Ord, Show, Generic, Data)
+
+instance NFData OpenTagType
 
 -- | A Markup token. The term is borrowed from <https://www.w3.org/html/wg/spec/tokenization.html#tokenization HTML> standards but is used across 'Html' and 'Xml' in this library.
 --
@@ -332,7 +339,9 @@ data Token
     Decl !ByteString ![Attr]
   | -- | Contents of a doctype declaration.
     Doctype !ByteString
-  deriving (Show, Ord, Eq, Generic, NFData)
+  deriving (Eq, Ord, Show, Generic, Data)
+
+instance NFData Token
 
 -- | Escape a single character.
 escapeChar :: Char -> ByteString
@@ -484,7 +493,7 @@ type AttrValue = ByteString
 -- >>> detokenize Html <$> tokenize_ Html [i|<input checked>|]
 -- ["<input checked=\"\">"]
 data Attr = Attr {attrName :: !AttrName, attrValue :: !AttrValue}
-  deriving (Generic, Show, Eq, Ord)
+  deriving (Eq, Ord, Show, Generic, Data)
 
 instance NFData Attr
 
@@ -544,7 +553,7 @@ detokenize s = \case
   (Decl t as) -> bool [i|<?#{t}#{renderAttrs as}?>|] [i|<!#{t}!>|] (s == Html)
 
 -- | @Indented 0@ puts newlines in between the tags.
-data RenderStyle = Compact | Indented Int deriving (Eq, Show, Generic)
+data RenderStyle = Compact | Indented Int deriving (Eq, Ord, Show, Generic, Data)
 
 indentChildren :: RenderStyle -> [ByteString] -> [ByteString]
 indentChildren Compact = id
@@ -960,7 +969,13 @@ isBooleanAttrName x =
 --
 -- >>> runParserWarn (ws `cut` "no whitespace") "x"
 -- This (ParserError "no whitespace")
-data ParserWarning = ParserLeftover ByteString | ParserError ByteString | ParserUncaught deriving (Eq, Show, Ord, Generic, NFData)
+data ParserWarning
+  = ParserLeftover ByteString
+  | ParserError ByteString
+  | ParserUncaught
+  deriving (Eq, Ord, Show, Generic, Data)
+
+instance NFData ParserWarning
 
 -- | Run parser, returning leftovers and errors as 'ParserWarning's.
 --

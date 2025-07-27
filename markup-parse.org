@@ -7,9 +7,8 @@
 
 * Development
 
-#+begin_src haskell :results output :exports both
+#+begin_src haskell-ng :results output :exports both
 :r
-:set prompt "> "
 :set -Wno-type-defaults
 :set -Wno-name-shadowing
 :set -XOverloadedStrings
@@ -17,34 +16,26 @@
 :set -XQuasiQuotes
 import Control.Monad
 import MarkupParse
-import MarkupParse.FlatParse
-import MarkupParse.Patch
+import MarkupParse.Internal.FlatParse
 import Data.ByteString qualified as B
 import Data.ByteString.Char8 qualified as C
 import Data.Map.Strict qualified as Map
 import Data.Function
 import FlatParse.Basic hiding (take)
 import Data.String.Interpolate
-import Data.TreeDiff
 import Control.Monad
 bs <- B.readFile "other/line.svg"
 C.length bs
 #+end_src
 
 #+RESULTS:
-: Preprocessing library for markup-parse-0.1.1..
-: GHCi, version 9.6.2: https://www.haskell.org/ghc/  :? for help
-: [1 of 3] Compiling MarkupParse.FlatParse ( src/MarkupParse/FlatParse.hs, interpreted )
-: [2 of 3] Compiling MarkupParse      ( src/MarkupParse.hs, interpreted )
-: [3 of 3] Compiling MarkupParse.Patch ( src/MarkupParse/Patch.hs, interpreted )
-: Ok, three modules loaded.
-: g
-: Ok, three modules loaded.
+: [1 of 2] Compiling MarkupParse.Internal.FlatParse ( src/MarkupParse/Internal/FlatParse.hs, interpreted ) [Flags changed]
+: Ok, two modules reloaded.
 : 7554
 
 * Main Pipeline types
 
-#+begin_src haskell :results output :exports both
+#+begin_src haskell-ng :results output :exports both
 :t tokenize Html
 :t gather Html
 :t normalize
@@ -62,9 +53,11 @@ C.length bs
 : tokenize Html >=> gather Html >=> (normalize >>> pure) >=> degather Html >=> (fmap (detokenize Html) >>> pure)
 :   :: ByteString -> These [MarkupWarning] [ByteString]
 
-Round trip equality
 
-#+begin_src haskell :results output :exports both
+** tests
+*** Round trip equality
+
+#+begin_src haskell-ng :results output :exports both
 m = markup_ Xml bs
 m == (markup_ Xml $ markdown_ Compact Xml m)
 #+end_src
@@ -72,20 +65,9 @@ m == (markup_ Xml $ markdown_ Compact Xml m)
 #+RESULTS:
 : True
 
-* MarkupParse.Patch
+*** wiki diff test debug
 
-Obviously, patch doesn't belong here long-term but has been very useful in testing and development.
-
-#+begin_src haskell :results output :exports both
-showPatch $ patch [1, 2, 3, 5] [0, 1, 2, 4, 6]
-#+end_src
-
-#+RESULTS:
-: [+0, -3, +4, -5, +6]
-
-* wiki diff test debug
-
-#+begin_src haskell :results output :exports both
+#+begin_src haskell-ng :results output :exports both
 bs <- B.readFile "other/Parsing - Wikipedia.html"
 m = markup_ Html bs
 m == (markup_ Html $ markdown_ Compact Html m)
@@ -113,14 +95,8 @@ m == (markup_ Html $ markdown_ Compact Html m)
 [[https://hackage.haskell.org/package/XMLParser][XMLParser]] & [[https://hackage.haskell.org/package/hexml][hexml]] are parsec-based parsers.
 
 * Performance
-
+** perf
 The [[https://hackage.haskell.org/package/perf][perf]] library has been used to measure performance of the library.
-
-`cabal bench` runs the default benchmarking:
-
-#+begin_src sh :results output :exports both
-cabal bench
-#+end_src
 
 #+RESULTS:
 #+begin_example
