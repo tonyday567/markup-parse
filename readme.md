@@ -1,19 +1,3 @@
-
-# Table of Contents
-
-1.  [markup-parse](#org813b686)
-2.  [Development](#org3d7b96c)
-3.  [Main Pipeline types](#orgb8f20ca)
-4.  [MarkupParse.Patch](#org3c16287)
-5.  [wiki diff test debug](#org25edc96)
-6.  [Reference](#org4a018da)
-    1.  [Prior Art](#org1ed6bdf)
-7.  [Performance](#org9b10723)
-    1.  [Profiling](#orgf660933)
-
-
-<a id="org813b686"></a>
-
 # markup-parse
 
 [![img](https://img.shields.io/hackage/v/markup-parse.svg)](https://hackage.haskell.org/package/markup-parse)
@@ -22,12 +6,9 @@
 `markup-parse` parses and prints a subset of common XML & HTML structured data, from and to strict bytestrings
 
 
-<a id="org3d7b96c"></a>
-
 # Development
 
     :r
-    :set prompt "> "
     :set -Wno-type-defaults
     :set -Wno-name-shadowing
     :set -XOverloadedStrings
@@ -35,31 +16,21 @@
     :set -XQuasiQuotes
     import Control.Monad
     import MarkupParse
-    import MarkupParse.FlatParse
-    import MarkupParse.Patch
+    import MarkupParse.Internal.FlatParse
     import Data.ByteString qualified as B
     import Data.ByteString.Char8 qualified as C
     import Data.Map.Strict qualified as Map
     import Data.Function
     import FlatParse.Basic hiding (take)
     import Data.String.Interpolate
-    import Data.TreeDiff
     import Control.Monad
     bs <- B.readFile "other/line.svg"
     C.length bs
 
-    Preprocessing library for markup-parse-0.1.1..
-    GHCi, version 9.6.2: https://www.haskell.org/ghc/  :? for help
-    [1 of 3] Compiling MarkupParse.FlatParse ( src/MarkupParse/FlatParse.hs, interpreted )
-    [2 of 3] Compiling MarkupParse      ( src/MarkupParse.hs, interpreted )
-    [3 of 3] Compiling MarkupParse.Patch ( src/MarkupParse/Patch.hs, interpreted )
-    Ok, three modules loaded.
-    g
-    Ok, three modules loaded.
+    [1 of 2] Compiling MarkupParse.Internal.FlatParse ( src/MarkupParse/Internal/FlatParse.hs, interpreted ) [Flags changed]
+    Ok, two modules reloaded.
     7554
 
-
-<a id="orgb8f20ca"></a>
 
 # Main Pipeline types
 
@@ -78,7 +49,11 @@
     tokenize Html >=> gather Html >=> (normalize >>> pure) >=> degather Html >=> (fmap (detokenize Html) >>> pure)
       :: ByteString -> These [MarkupWarning] [ByteString]
 
-Round trip equality
+
+## tests
+
+
+### Round trip equality
 
     m = markup_ Xml bs
     m == (markup_ Xml $ markdown_ Compact Xml m)
@@ -86,20 +61,7 @@ Round trip equality
     True
 
 
-<a id="org3c16287"></a>
-
-# MarkupParse.Patch
-
-Obviously, patch doesn&rsquo;t belong here long-term but has been very useful in testing and development.
-
-    showPatch $ patch [1, 2, 3, 5] [0, 1, 2, 4, 6]
-
-    [+0, -3, +4, -5, +6]
-
-
-<a id="org25edc96"></a>
-
-# wiki diff test debug
+### wiki diff test debug
 
     bs <- B.readFile "other/Parsing - Wikipedia.html"
     m = markup_ Html bs
@@ -107,8 +69,6 @@ Obviously, patch doesn&rsquo;t belong here long-term but has been very useful in
 
     True
 
-
-<a id="org4a018da"></a>
 
 # Reference
 
@@ -118,8 +78,6 @@ Obviously, patch doesn&rsquo;t belong here long-term but has been very useful in
 
 [Extensible Markup Language (XML) 1.0 (Fifth Edition)](https://www.w3.org/TR/xml/)
 
-
-<a id="org1ed6bdf"></a>
 
 ## Prior Art
 
@@ -132,15 +90,12 @@ Obviously, patch doesn&rsquo;t belong here long-term but has been very useful in
 [XMLParser](https://hackage.haskell.org/package/XMLParser) & [hexml](https://hackage.haskell.org/package/hexml) are parsec-based parsers.
 
 
-<a id="org9b10723"></a>
-
 # Performance
 
+
+## perf
+
 The [perf](https://hackage.haskell.org/package/perf) library has been used to measure performance of the library.
-
-\`cabal bench\` runs the default benchmarking:
-
-    cabal bench
 
     Running 1 benchmarks...
     Benchmark markup-parse-speed: RUNNING...
@@ -155,8 +110,6 @@ The [perf](https://hackage.haskell.org/package/perf) library has been used to me
     tokenize        time            8.59e5          8.67e5
     Benchmark markup-parse-speed: FINISH
 
-
-<a id="orgf660933"></a>
 
 ## Profiling
 
