@@ -114,12 +114,10 @@ import Prelude hiding (replicate)
 
 -- $setup
 -- >>> :set -XTemplateHaskell
--- >>> :set -XQuasiQuotes
 -- >>> :set -XOverloadedStrings
 -- >>> import MarkupParse
 -- >>> import MarkupParse.Internal.FlatParse
 -- >>> import FlatParse.Basic
--- >>> import Data.String.Interpolate
 -- >>> import Data.ByteString.Char8 qualified as B
 -- >>> import Data.Tree
 
@@ -251,7 +249,7 @@ markup_ s bs = markup s bs & warnError
 
 -- | Concatenate sequential content and normalize attributes; unwording class values and removing duplicate attributes (taking last).
 --
--- >>> B.putStr $ warnError $ markdown Compact Xml $ normalize (markup_ Xml [i|<foo class="a" class="b" bar="first" bar="last"/>|])
+-- >>> B.putStr $ warnError $ markdown Compact Xml $ normalize (markup_ Xml "<foo class=\"a\" class=\"b\" bar=\"first\" bar=\"last\"/>")
 -- <foo bar="last" class="a b"/>
 normalize :: Markup -> Markup
 normalize m = normContent $ Markup $ fmap (fmap normTokenAttrs) (elements m)
@@ -301,16 +299,16 @@ instance NFData OpenTagType
 --
 -- Specifically, an 'EndTag' will occur in a list of tokens, but not as a primitive in 'Markup'. It may turn out to be better to have two different types for these two uses and future iterations of this library may head in this direction.
 --
--- >>> runParser_ (many (tokenP Html)) [i|<foo>content</foo>|]
+-- >>> runParser_ (many (tokenP Html)) "<foo>content</foo>"
 -- [OpenTag StartTag "foo" [],Content "content",EndTag "foo"]
 --
--- >>> runParser_ (tokenP Xml) [i|<foo/>|]
+-- >>> runParser_ (tokenP Xml) "<foo/>"
 -- OpenTag EmptyElemTag "foo" []
 --
 -- >>> runParser_ (tokenP Html) "<!-- Comment -->"
 -- Comment " Comment "
 --
--- >>> runParser_ (tokenP Xml) [i|<?xml version="1.0" encoding="UTF-8"?>|]
+-- >>> runParser_ (tokenP Xml) "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
 -- Decl "xml" [Attr {attrName = "version", attrValue = " version=\"1.0\""},Attr {attrName = "encoding", attrValue = "UTF-8"}]
 --
 -- >>> runParser_ (tokenP Html) "<!DOCTYPE html>"
@@ -319,10 +317,10 @@ instance NFData OpenTagType
 -- >>> runParser_ (tokenP Xml) "<!DOCTYPE foo [ declarations ]>"
 -- Doctype "DOCTYPE foo [ declarations ]"
 --
--- >>> runParser (tokenP Html) [i|<foo a="a" b="b" c=c check>|]
+-- >>> runParser (tokenP Html) "<foo a=\"a\" b=\"b\" c=c check>"
 -- OK (OpenTag StartTag "foo" [Attr {attrName = "a", attrValue = "a"},Attr {attrName = "b", attrValue = "b"},Attr {attrName = "c", attrValue = "c"},Attr {attrName = "check", attrValue = ""}]) ""
 --
--- >>> runParser (tokenP Xml) [i|<foo a="a" b="b" c=c check>|]
+-- >>> runParser (tokenP Xml) "<foo a=\"a\" b=\"b\" c=c check>"
 -- Fail
 data Token
   = -- | A tag. https://developer.mozilla.org/en-US/docs/Glossary/Tag
@@ -362,7 +360,7 @@ escapeChar x = B.singleton x
 --
 -- No attempt is made to meet the <https://en.wikipedia.org/wiki/List_of_XML_and_HTML_character_entity_references HTML Standards>
 --
--- >>> escape [i|<foo class="a" bar='b'>|]
+-- >>> escape "<foo class=\"a\" bar='b'>"
 -- "&lt;foo class=&quot;a&quot; bar=&apos;b&apos;&gt;"
 escape :: ByteString -> ByteString
 escape bs = B.concatMap escapeChar bs
@@ -400,7 +398,7 @@ tokenP Xml = tokenXmlP
 
 -- | Parse a bytestring into tokens
 --
--- >>> tokenize Html [i|<foo>content</foo>|]
+-- >>> tokenize Html "<foo>content</foo>"
 -- That [OpenTag StartTag "foo" [],Content "content",EndTag "foo"]
 tokenize :: Standard -> ByteString -> Warn [Token]
 tokenize s bs = first ((: []) . MarkupParser) $ runParserWarn (many (tokenP s)) bs
@@ -472,7 +470,7 @@ content bs = Markup [pure $ Content (escape bs)]
 -- Markup {elements = [Node {rootLabel = Content "<content>", subForest = []}]}
 --
 -- >>> markup_ Html $ markdown_ Compact Html $ contentRaw "<content>"
--- Markup {elements = *** Exception: UnclosedTag
+-- *** Exception: UnclosedTag
 -- ...
 contentRaw :: ByteString -> Markup
 contentRaw bs = Markup [pure $ Content bs]
@@ -488,7 +486,7 @@ type AttrValue = ByteString
 -- In parsing, boolean attributes, which are not required to have a value in HTML,
 -- will be set a value of "", which is ok. But this will then be rendered.
 --
--- >>> detokenize Html <$> tokenize_ Html [i|<input checked>|]
+-- >>> detokenize Html <$> tokenize_ Html "<input checked>"
 -- ["<input checked=\"\">"]
 data Attr = Attr {attrName :: !AttrName, attrValue :: !AttrValue}
   deriving (Eq, Ord, Show, Generic, Data)
@@ -566,14 +564,14 @@ finalConcat (Indented _) =
 
 -- | Convert 'Markup' to bytestrings
 --
--- >>> markdown (Indented 4) Html (markup_ Html [i|<foo><br></foo>|])
+-- >>> markdown (Indented 4) Html (markup_ Html "<foo><br></foo>")
 -- That "<foo>\n    <br>\n</foo>"
 markdown :: RenderStyle -> Standard -> Markup -> Warn ByteString
 markdown r s m = second (finalConcat r) $ concatWarns $ foldTree (renderBranch r s) <$> (elements $ normContent m)
 
 -- | Convert 'Markup' to 'ByteString' and error on warnings.
 --
--- >>> B.putStr $ markdown_ (Indented 4) Html (markup_ Html [i|<foo><br></foo>|])
+-- >>> B.putStr $ markdown_ (Indented 4) Html (markup_ Html "<foo><br></foo>")
 -- <foo>
 --     <br>
 -- </foo>
