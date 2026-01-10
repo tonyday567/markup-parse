@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -106,7 +105,6 @@ import Data.Function
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Maybe
-import Data.String.Interpolate
 import Data.These
 import Data.Tree
 import FlatParse.Basic hiding (cut, take)
@@ -531,7 +529,7 @@ renderAttrs xs = B.singleton ' ' <> (B.unwords . fmap renderAttr $ xs)
 --
 -- Does not attempt to escape double quotes.
 renderAttr :: Attr -> ByteString
-renderAttr (Attr k v) = [i|#{k}="#{v}"|]
+renderAttr (Attr k v) = k <> "=\"" <> v <> "\""
 
 -- | bytestring representation of 'Token'.
 --
@@ -539,18 +537,18 @@ renderAttr (Attr k v) = [i|#{k}="#{v}"|]
 -- "<foo>"
 detokenize :: Standard -> Token -> ByteString
 detokenize s = \case
-  (OpenTag StartTag n []) -> [i|<#{n}>|]
-  (OpenTag StartTag n as) -> [i|<#{n}#{renderAttrs as}>|]
+  (OpenTag StartTag n []) -> "<" <> n <> ">"
+  (OpenTag StartTag n as) -> "<" <> n <> renderAttrs as <> ">"
   (OpenTag EmptyElemTag n as) ->
     bool
-      [i|<#{n}#{renderAttrs as}/>|]
-      [i|<#{n}#{renderAttrs as} />|]
+      ("<" <> n <> renderAttrs as <> "/>")
+      ("<" <> n <> renderAttrs as <> " />")
       (s == Html)
-  (EndTag n) -> [i|</#{n}>|]
+  (EndTag n) -> "</" <> n <> ">"
   (Content t) -> t
-  (Comment t) -> [i|<!--#{t}-->|]
-  (Doctype t) -> [i|<!#{t}>|]
-  (Decl t as) -> bool [i|<?#{t}#{renderAttrs as}?>|] [i|<!#{t}!>|] (s == Html)
+  (Comment t) -> "<!--" <> t <> "-->"
+  (Doctype t) -> "<!" <> t <> ">"
+  (Decl t as) -> bool ("<?" <> t <> renderAttrs as <> "?>") ("<!" <> t <> "!>") (s == Html)
 
 -- | @Indented 0@ puts newlines in between the tags.
 data RenderStyle = Compact | Indented Int deriving (Eq, Ord, Show, Generic, Data)
