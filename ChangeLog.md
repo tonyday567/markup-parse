@@ -1,3 +1,10 @@
+0.2.2
+===
+
+- GHC 9.14.1 support
+- removed string-interpolate dependency
+- use ByteString concatenation instead
+
 0.2.1
 ===
 

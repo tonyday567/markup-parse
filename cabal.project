@@ -1,3 +1,5 @@
 packages: markup-parse.cabal
 
 write-ghc-environment-files: always
+
+allow-newer: these:base
