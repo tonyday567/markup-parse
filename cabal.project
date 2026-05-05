@@ -1,4 +1,5 @@
-packages: markup-parse.cabal
+packages:
+  markup-parse.cabal
 
 write-ghc-environment-files: always
 
