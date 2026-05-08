@@ -61,14 +61,6 @@ module MarkupParse
     degather,
     degather_,
 
-    -- * XML specific Parsers
-    xmlVersionInfoP,
-    xmlEncodingDeclP,
-    xmlStandaloneP,
-    xmlVersionNumP,
-    xmlEncNameP,
-    xmlYesNoP,
-
     -- * bytestring support
     escapeChar,
     escape,
@@ -87,7 +79,7 @@ module MarkupParse
   )
 where
 
-import Control.Applicative
+import Control.Applicative hiding (many, some, (<|>))
 import Control.Category ((>>>))
 import Control.DeepSeq
 import Control.Monad
@@ -95,7 +87,7 @@ import Data.Bifunctor
 import Data.Bool
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as B
-import Data.Char hiding (isDigit)
+import Data.Char
 import Data.Data
 import Data.Foldable
 import Data.Function
@@ -105,7 +97,10 @@ import Data.Maybe
 import Data.These
 import Data.Tree
 import GHC.Generics
-import Mpar (Parser, StateThreader (..), string, satisfy, satisfyAscii, byteStringOf, fusedSatisfy, isDigit, isLatinLetter, ws_, isa, isWhitespace, char, eq, wrappedQ, sq, dq, bracketed, wrapped)
+import Circuit.Parser
+  ( Parser, These (..), satisfy, char, string, many, some, (<|>), empty
+  , captured, skipWhile )
+import qualified Circuit.Parser as CP
 import Prelude hiding (replicate)
 
 -- $setup
@@ -210,17 +205,20 @@ type Warn a = These [MarkupWarning] a
 
 -- | TokenParser: semantic phase parser operating on token streams
 --
--- Specialization of StateThreader for token-list parsing with error accumulation.
--- Used in gather and other semantic analysis functions.
-type TokenParser e a = StateThreader [Token] e a
+-- State-threading parser over token lists with error/warning accumulation.
+-- Replaces the mpar StateThreader (which was in the removed FlatParse module).
+newtype TokenParser e a = TokenParser { runTP :: [Token] -> ([Token], These e a) }
+
+runTP' :: TokenParser e a -> [Token] -> ([Token], These e a)
+runTP' = runTP
 
 -- | A single-quoted or double-quoted wrapped parser (no guard check).
-wrappedQNoGuard :: Parser ByteString a -> Parser ByteString a
-wrappedQNoGuard p = wrapped dq p <|> wrapped sq p
+wrappedQNoGuard :: Parser String Char a -> Parser String Char a
+wrappedQNoGuard p = (char '"' *> p <* char '"') <|> (char '\'' *> p <* char '\'')
 
 -- | Parser bracketed by square brackets.
-bracketedSB :: Parser ByteString [Char]
-bracketedSB = bracketed (char '[') (char ']') (many (satisfy (/= ']')))
+bracketedSB :: Parser String Char String
+bracketedSB = char '[' *> many (satisfy (/= ']')) <* char ']'
 
 -- | Convert any warnings to an 'error'
 --
@@ -402,7 +400,7 @@ doctypeXml =
 --
 -- >>> runParser (tokenP Html) "<foo>content</foo>"
 -- OK (OpenTag StartTag "foo" []) "content</foo>"
-tokenP :: Standard -> Parser ByteString Token
+tokenP :: Standard -> Parser String Char Token
 tokenP Html = tokenHtmlP
 tokenP Xml = tokenXmlP
 
@@ -411,7 +409,7 @@ tokenP Xml = tokenXmlP
 -- >>> tokenize Html "<foo>content</foo>"
 -- That [OpenTag StartTag "foo" [],Content "content",EndTag "foo"]
 tokenize :: Standard -> ByteString -> Warn [Token]
-tokenize s bs = first ((: []) . MarkupParser) $ runParserWarn (many (tokenP s)) bs
+tokenize s bs = first ((: []) . MarkupParser) $ runParserWarn (many (tokenP s)) (B.unpack bs)
 
 -- | tokenize but errors on warnings.
 tokenize_ :: Standard -> ByteString -> [Token]
@@ -618,7 +616,7 @@ concatContent = \case
 -- >>> gather Html =<< tokenize Html "<foo class=\"bar\">baz</foo>"
 -- That (Markup {elements = [Node {rootLabel = OpenTag StartTag "foo" [Attr {attrName = "class", attrValue = "bar"}], subForest = [Node {rootLabel = Content "baz", subForest = []}]}]})
 gather :: Standard -> TokenParser [MarkupWarning] Markup
-gather s = StateThreader $ \ts ->
+gather s = TokenParser $ \ts ->
   let (Cursor finalSibs finalParents, warnings) =
         foldl' (\(c, xs) t -> incCursor s t c & second (maybeToList >>> (<> xs))) (Cursor [] [], []) ts
   in case (finalSibs, finalParents, warnings) of
@@ -630,7 +628,7 @@ gather s = StateThreader $ \ts ->
 
 -- | 'gather' but errors on warnings.
 gather_ :: Standard -> [Token] -> Markup
-gather_ s ts = case run (gather s) ts of
+gather_ s ts = case runTP (gather s) ts of
   ([], That m) -> m
   ([], This ws) -> error (showWarnings ws)
   ([], These ws m) -> if ws == [] then m else error (showWarnings ws)
@@ -638,7 +636,7 @@ gather_ s ts = case run (gather s) ts of
 
 -- | Wrapper for gather to work with Kleisli composition in markup pipeline
 gatherTokens :: Standard -> [Token] -> Warn Markup
-gatherTokens s ts = case run (gather s) ts of
+gatherTokens s ts = case runTP (gather s) ts of
   ([], result) -> result
   _ -> error "Impossible: gather should consume all tokens"
 
@@ -703,259 +701,181 @@ addCloseTags _ x xs = case xs of
   [] -> That [x]
   cs -> These [LeafWithChildren] [x] <> concatWarns cs
 
-tokenXmlP :: Parser ByteString Token
+-- ============================================================================
+-- Character predicates (local, replacing mpar imports)
+-- ============================================================================
+
+isWhitespace :: Char -> Bool
+isWhitespace ' '  = True
+isWhitespace '\n' = True
+isWhitespace '\t' = True
+isWhitespace '\r' = True
+isWhitespace _    = False
+
+isLatinLetter :: Char -> Bool
+isLatinLetter c = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+
+-- ============================================================================
+-- Token parsers (Circuit.Parser, String-based)
+-- ============================================================================
+
+-- | capture consumed chars and convert to ByteString
+bs :: Parser String Char a -> Parser String Char ByteString
+bs p = B.pack . fst <$> captured p
+
+-- | capture consumed list of items and convert first element to ByteString
+bs1 :: Parser String Char [a] -> Parser String Char ByteString
+bs1 p = B.pack . fst <$> captured (void p)
+
+-- | equals sign with optional whitespace
+eq_ :: Parser String Char ()
+eq_ = skipWhile isWhitespace *> char '=' *> skipWhile isWhitespace
+
+-- | quoted string: single or double quoted
+wrappedQ :: Parser String Char ByteString
+wrappedQ =
+  (char '\'' *> bs (many (satisfy (/= '\''))) <* char '\'')
+    <|> (char '"' *> bs (many (satisfy (/= '"'))) <* char '"')
+
+tokenXmlP :: Parser String Char Token
 tokenXmlP =
-  (string "<!--" *> commentP)
-    <|> (string "<!" *> doctypeXmlP)
-    <|> (string "</" *> endTagXmlP)
-    <|> (string "<?" *> declXmlP)
-    <|> (string "<" *> startTagsXmlP)
-    <|> contentP
+  (string "<!--" *> commentP_)
+    <|> (string "<!" *> doctypeXmlP_)
+    <|> (string "</" *> endTagXmlP_)
+    <|> (string "<?" *> declXmlP_)
+    <|> (string "<" *> startTagsXmlP_)
+    <|> contentP_
 
--- [4]
-nameStartCharP :: Parser ByteString Char
-nameStartCharP = fusedSatisfy isLatinLetter isNameStartChar isNameStartChar isNameStartChar
+tokenHtmlP :: Parser String Char Token
+tokenHtmlP =
+  (string "<!--" *> commentP_)
+    <|> (string "<!" *> doctypeHtmlP_)
+    <|> (string "</" *> endTagHtmlP_)
+    <|> (string "<?" *> bogusCommentHtmlP_)
+    <|> (string "<" *> startTagsHtmlP_)
+    <|> contentP_
 
+-- XML name start char (production [4])
 isNameStartChar :: Char -> Bool
 isNameStartChar x =
-  (x >= 'a' && x <= 'z')
-    || (x >= 'A' && x <= 'Z')
-    || (x == ':')
-    || (x == '_')
-    || (x >= '\xC0' && x <= '\xD6')
-    || (x >= '\xD8' && x <= '\xF6')
-    || (x >= '\xF8' && x <= '\x2FF')
-    || (x >= '\x370' && x <= '\x37D')
-    || (x >= '\x37F' && x <= '\x1FFF')
-    || (x >= '\x200C' && x <= '\x200D')
-    || (x >= '\x2070' && x <= '\x218F')
-    || (x >= '\x2C00' && x <= '\x2FEF')
-    || (x >= '\x3001' && x <= '\xD7FF')
-    || (x >= '\xF900' && x <= '\xFDCF')
-    || (x >= '\xFDF0' && x <= '\xFFFD')
-    || (x >= '\x10000' && x <= '\xEFFFF')
+  isLatinLetter x || x == ':' || x == '_'
+  || (x >= '\xC0' && x <= '\xD6')
+  || (x >= '\xD8' && x <= '\xF6')
+  || (x >= '\xF8' && x <= '\xFF')
 
--- [4a]
-nameCharP :: Parser ByteString Char
-nameCharP = fusedSatisfy isNameCharAscii isNameCharExt isNameCharExt isNameCharExt
+-- XML/HMTL name char
+isNameChar :: Char -> Bool
+isNameChar x = not (isWhitespace x || x == '/' || x == '<' || x == '>')
 
-isNameCharAscii :: Char -> Bool
-isNameCharAscii x =
-  (x >= 'a' && x <= 'z')
-    || (x >= 'A' && x <= 'Z')
-    || (x >= '0' && x <= '9')
-    || (x == ':')
-    || (x == '_')
-    || (x == '-')
-    || (x == '.')
+isNameCharXml :: Char -> Bool
+isNameCharXml x =
+  isLatinLetter x || Data.Char.isDigit x || x `elem` (":_-.·" :: String)
+  || (x >= '\xC0' && x <= '\xD6')
+  || (x >= '\xD8' && x <= '\xF6')
+  || (x >= '\xF8' && x <= '\xFF')
 
-isNameCharExt :: Char -> Bool
-isNameCharExt x =
-  (x >= 'a' && x <= 'z')
-    || (x >= 'A' && x <= 'Z')
-    || (x >= '0' && x <= '9')
-    || (x == ':')
-    || (x == '_')
-    || (x == '-')
-    || (x == '.')
-    || (x == '\xB7')
-    || (x >= '\xC0' && x <= '\xD6')
-    || (x >= '\xD8' && x <= '\xF6')
-    || (x >= '\xF8' && x <= '\x2FF')
-    || (x >= '\x300' && x <= '\x36F')
-    || (x >= '\x370' && x <= '\x37D')
-    || (x >= '\x37F' && x <= '\x1FFF')
-    || (x >= '\x200C' && x <= '\x200D')
-    || (x >= '\x203F' && x <= '\x2040')
-    || (x >= '\x2070' && x <= '\x218F')
-    || (x >= '\x2C00' && x <= '\x2FEF')
-    || (x >= '\x3001' && x <= '\xD7FF')
-    || (x >= '\xF900' && x <= '\xFDCF')
-    || (x >= '\xFDF0' && x <= '\xFFFD')
-    || (x >= '\x10000' && x <= '\xEFFFF')
+isAttrName :: Char -> Bool
+isAttrName x = not (isWhitespace x || x == '/' || x == '>' || x == '=' || x == '<')
 
--- | name string according to xml production rule [5]
-nameXmlP :: Parser ByteString ByteString
-nameXmlP = byteStringOf (nameStartCharP >> many nameCharP)
+isBooleanAttrName :: Char -> Bool
+isBooleanAttrName x = not (isWhitespace x || x == '/' || x == '>' || x == '<')
 
-commentCloseP :: Parser ByteString ()
-commentCloseP = string "-->"
+-- XML parsers
 
-charNotMinusP :: Parser ByteString ByteString
-charNotMinusP = byteStringOf $ satisfy (/= '-')
+nameStartCharXmlP :: Parser String Char Char
+nameStartCharXmlP = satisfy isNameStartChar
 
-minusPlusCharP :: Parser ByteString ByteString
-minusPlusCharP = byteStringOf (char '-' *> charNotMinusP)
+nameCharXmlP :: Parser String Char Char
+nameCharXmlP = satisfy isNameCharXml
 
-commentP :: Parser ByteString Token
-commentP = Comment <$> byteStringOf (many (charNotMinusP <|> minusPlusCharP)) <* commentCloseP
+nameXmlP :: Parser String Char ByteString
+nameXmlP = bs (nameStartCharXmlP *> many nameCharXmlP)
 
-contentP :: Parser ByteString Token
-contentP = Content <$> byteStringOf (some (satisfy (/= '<')))
+commentP_ :: Parser String Char Token
+commentP_ = Comment <$> (bs (many (satisfy (/= '-') <|> (char '-' *> satisfy (/= '-')))) <* string "-->")
 
--- | XML declaration as per production rule [23]
-declXmlP :: Parser ByteString Token
-declXmlP = do
-  _ <- string "xml"
-  av <- Attr "version" <$> xmlVersionInfoP
-  en <- Attr "encoding" <$> xmlEncodingDeclP
-  st <- optional $ Attr "standalone" <$> xmlStandaloneP
-  _ <- ws_
-  _ <- string "?>"
-  pure $ Decl "xml" $ [av, en] <> maybeToList st
+contentP_ :: Parser String Char Token
+contentP_ = Content <$> bs (some (satisfy (/= '<')))
 
--- | xml production [24]
-xmlVersionInfoP :: Parser ByteString ByteString
-xmlVersionInfoP = byteStringOf $ ws_ >> string "version" >> eq >> wrappedQNoGuard xmlVersionNumP
+declXmlP_ :: Parser String Char Token
+declXmlP_ =
+  let attr key = Attr (B.pack key) <$> (skipWhile isWhitespace *> string key *> eq_ *> wrappedQ)
+      one x = [x]
+  in string "xml" *>
+     (Decl "xml" <$> ((:) <$> attr "version" <*> (one <$> attr "encoding")))
+       <* skipWhile isWhitespace <* string "?>"
 
--- | xml production [26]
-xmlVersionNumP :: Parser ByteString ByteString
-xmlVersionNumP =
-  byteStringOf (string "1." >> some (satisfy isDigit))
+doctypeXmlP_ :: Parser String Char Token
+doctypeXmlP_ = Doctype <$> (bs (string "DOCTYPE" *> skipWhile isWhitespace *> void nameXmlP
+  *> skipWhile isWhitespace *> many (satisfy (/= '>'))) <* char '>')
 
--- | Doctype declaration as per production rule [28]
-doctypeXmlP :: Parser ByteString Token
-doctypeXmlP =
-  Doctype
-    <$> byteStringOf
-      ( string "DOCTYPE"
-          >> ws_
-          >> nameXmlP
-          >>
-          -- optional (ws_ >> xmlExternalID) >>
-          ws_
-          >> optional bracketedSB
-          >> ws_
-      )
-    <* char '>'
+startTagsXmlP_ :: Parser String Char Token
+startTagsXmlP_ =
+  OpenTag EmptyElemTag <$> (nameXmlP <* skipWhile isWhitespace <* string "/>")
+    <*> pure []
+    <|> OpenTag StartTag <$> (nameXmlP <* skipWhile isWhitespace <* string ">")
+    <*> many (skipWhile isWhitespace *> attrXmlP_)
 
--- | xml production [32]
-xmlStandaloneP :: Parser ByteString ByteString
-xmlStandaloneP =
-  byteStringOf $
-    ws_ *> string "standalone" *> eq *> xmlYesNoP
+attrXmlP_ :: Parser String Char Attr
+attrXmlP_ = Attr <$> (nameXmlP <* eq_) <*> wrappedQ
 
--- | xml yes/no
-xmlYesNoP :: Parser ByteString ByteString
-xmlYesNoP = wrappedQNoGuard (byteStringOf $ string "yes" <|> string "no")
+endTagXmlP_ :: Parser String Char Token
+endTagXmlP_ = EndTag <$> (nameXmlP <* skipWhile isWhitespace <* char '>')
 
--- | xml production [80]
-xmlEncodingDeclP :: Parser ByteString ByteString
-xmlEncodingDeclP = ws_ *> string "encoding" *> eq *> wrappedQNoGuard xmlEncNameP
+-- HTML parsers
 
--- | xml production [81]
-xmlEncNameP :: Parser ByteString ByteString
-xmlEncNameP = byteStringOf (satisfyAscii isLatinLetter >> many (satisfyAscii (\x -> isLatinLetter x || isDigit x || elem x ("._-" :: [Char]))))
+nameHtmlP :: Parser String Char ByteString
+nameHtmlP = bs (satisfy isLatinLetter *> many (satisfy isNameChar))
 
--- | open xml tag as per xml production rule [40]
---  self-closing xml tag as per [44]
-startTagsXmlP :: Parser ByteString Token
-startTagsXmlP = do
-  !n <- nameXmlP
-  !as <- many (ws_ *> attrXmlP)
-  _ <- ws_
-  (string "/>" *> pure (OpenTag EmptyElemTag n as))
-    <|> (string ">" *> pure (OpenTag StartTag n as))
+startTagsHtmlP_ :: Parser String Char Token
+startTagsHtmlP_ =
+  OpenTag StartTag
+    <$> (nameHtmlP <* skipWhile isWhitespace)
+    <*> (attrsHtmlP_ <* skipWhile isWhitespace <* string ">")
+    <|> OpenTag EmptyElemTag
+    <$> (nameHtmlP <* skipWhile isWhitespace)
+    <*> (attrsHtmlP_ <* skipWhile isWhitespace <* string "/>")
 
-attrXmlP :: Parser ByteString Attr
-attrXmlP = Attr <$> (nameXmlP <* eq) <*> wrappedQ
+endTagHtmlP_ :: Parser String Char Token
+endTagHtmlP_ = EndTag <$> (nameHtmlP <* skipWhile isWhitespace <* char '>')
 
--- | closing tag as per [42]
-endTagXmlP :: Parser ByteString Token
-endTagXmlP = EndTag <$> (nameXmlP <* ws_ <* char '>')
+attrHtmlP_ :: Parser String Char Attr
+attrHtmlP_ =
+  (Attr <$> (bs (many (satisfy isAttrName)) <* eq_) <*> (wrappedQ <|> bs (some (satisfy isBooleanAttrName))))
+    <|> (flip Attr B.empty <$> bs (some (satisfy isBooleanAttrName)))
 
--- | Parse a single 'Token'.
-tokenHtmlP :: Parser ByteString Token
-tokenHtmlP =
-  (string "<!--" *> commentP)
-    <|> (string "<!" *> doctypeHtmlP)
-    <|> (string "</" *> endTagHtmlP)
-    <|> (string "<?" *> bogusCommentHtmlP)
-    <|> (string "<" *> startTagsHtmlP)
-    <|> contentP
+attrsHtmlP_ :: Parser String Char [Attr]
+attrsHtmlP_ = many (skipWhile isWhitespace *> attrHtmlP_) <* skipWhile isWhitespace
 
-bogusCommentHtmlP :: Parser ByteString Token
-bogusCommentHtmlP = Comment <$> byteStringOf (some (satisfy (/= '<')))
+doctypeHtmlP_ :: Parser String Char Token
+doctypeHtmlP_ = Doctype <$> (bs (string "DOCTYPE" *> skipWhile isWhitespace *> void nameHtmlP
+  *> skipWhile isWhitespace) <* char '>')
 
-doctypeHtmlP :: Parser ByteString Token
-doctypeHtmlP =
-  Doctype
-    <$> byteStringOf
-      ( string "DOCTYPE"
-          >> ws_
-          >> nameHtmlP
-          >> ws_
-      )
-    <* char '>'
+bogusCommentHtmlP_ :: Parser String Char Token
+bogusCommentHtmlP_ = Comment <$> bs (some (satisfy (/= '<')))
 
-startTagsHtmlP :: Parser ByteString Token
-startTagsHtmlP = do
-  n <- nameHtmlP
-  as <- attrsP Html
-  _ <- ws_
-  (string "/>" *> pure (OpenTag EmptyElemTag n as))
-    <|> (string ">" *> pure (OpenTag StartTag n as))
-
-endTagHtmlP :: Parser ByteString Token
-endTagHtmlP = EndTag <$> nameHtmlP <* ws_ <* char '>'
-
--- | Parse a tag name. Each standard is slightly different.
-nameP :: Standard -> Parser ByteString ByteString
+-- | Parse a tag name.
+nameP :: Standard -> Parser String Char ByteString
 nameP Html = nameHtmlP
 nameP Xml = nameXmlP
 
-nameHtmlP :: Parser ByteString ByteString
-nameHtmlP = do
-  byteStringOf (nameStartCharHtmlP >> many (satisfy isNameChar))
+-- | Parse an attribute.
+attrP :: Standard -> Parser String Char Attr
+attrP Html = attrHtmlP_
+attrP Xml = attrXmlP_
 
-nameStartCharHtmlP :: Parser ByteString Char
-nameStartCharHtmlP = satisfyAscii isLatinLetter
+-- | Parse attributes list.
+attrsP :: Standard -> Parser String Char [Attr]
+attrsP Html = attrsHtmlP_
+attrsP Xml = many (skipWhile isWhitespace *> attrXmlP_) <* skipWhile isWhitespace
 
-isNameChar :: Char -> Bool
-isNameChar x =
-  not
-    ( isWhitespace x
-        || (x == '/')
-        || (x == '<')
-        || (x == '>')
-    )
+-- | Alias for single whitespace (backward compat with mpar)
+ws :: Parser String Char Char
+ws = satisfy isWhitespace
 
-attrHtmlP :: Parser ByteString Attr
-attrHtmlP =
-  (Attr <$> (attrNameP <* eq) <*> (wrappedQ <|> attrBooleanNameP))
-    <|> ((`Attr` mempty) <$> attrBooleanNameP)
-
-attrBooleanNameP :: Parser ByteString ByteString
-attrBooleanNameP = byteStringOf $ some (satisfy isBooleanAttrName)
-
--- | Parse an 'Attr'
-attrP :: Standard -> Parser ByteString Attr
-attrP Html = attrHtmlP
-attrP Xml = attrXmlP
-
--- | Parse attributions
-attrsP :: Standard -> Parser ByteString [Attr]
-attrsP s = many (ws_ *> attrP s) <* ws_
-
-attrNameP :: Parser ByteString ByteString
-attrNameP = isa isAttrName
-
-isAttrName :: Char -> Bool
-isAttrName x =
-  not $
-    isWhitespace x
-      || (x == '/')
-      || (x == '>')
-      || (x == '=')
-
-isBooleanAttrName :: Char -> Bool
-isBooleanAttrName x =
-  not $
-    isWhitespace x
-      || (x == '/')
-      || (x == '>')
-
--- | Warnings covering leftovers, 'Err's and 'Fail'
+-- | Alias for skip whitespace (backward compat with mpar)
+ws_ :: Parser String Char ()
+ws_ = skipWhile isWhitespace
 --
 -- >>> runParserWarn ws " x"
 -- These (ParserLeftover "x") ' '
@@ -964,8 +884,8 @@ isBooleanAttrName x =
 -- This ParserUncaught
 --
 data ParserWarning
-  = ParserLeftover ByteString
-  | ParserError ByteString
+  = ParserLeftover String
+  | ParserError String
   | ParserUncaught
   deriving (Eq, Ord, Show, Generic, Data)
 
@@ -980,36 +900,23 @@ instance NFData ParserWarning
 -- This ParserUncaught
 --
 -- >>> runParserWarn ws " x"
--- These (ParserLeftover "x") ' '
-runParserWarn :: Parser ByteString a -> ByteString -> These ParserWarning a
-runParserWarn p bs = case run p bs of
-  (rest, That a) ->
-    if B.null rest
-      then That a
-      else These (ParserLeftover $ B.take 200 rest) a
-  (_, This ()) -> This ParserUncaught
-  (rest, These () a) ->
-    if B.null rest
-      then That a
-      else These (ParserLeftover $ B.take 200 rest) a
+-- | Run parser, returning leftovers and errors as 'ParserWarning's.
+runParserWarn :: Parser String Char a -> String -> These ParserWarning a
+runParserWarn p s = case CP.runParser p s of
+  These a "" -> That a
+  These a rest -> These (ParserLeftover (take 200 rest)) a
+  This a      -> That a
+  That _      -> This ParserUncaught
 
--- | Run parser, ignore leftovers, and error on Fail.
---
--- >>> runParser_ ws " "
--- ' '
---
--- >>> runParser_ ws " x"
--- ' '
---
--- >>> runParser_ ws "x"
--- *** Exception: Uncaught parse failure
--- ...
 -- | Run a parser and return the remaining input and result as a tuple
-runParser :: Parser ByteString a -> ByteString -> (ByteString, These () a)
-runParser = run
+runParser :: Parser String Char a -> String -> (String, These () a)
+runParser p s = case CP.runParser p s of
+  These a s' -> (s', These () a)
+  This a     -> ([], That a)
+  That s'    -> (s', This ())
 
-runParser_ :: Parser ByteString a -> ByteString -> a
-runParser_ p bs = case run p bs of
-  (_, That a) -> a
-  (_, This ()) -> error "Uncaught parse failure"
-  (_, These () a) -> a
+runParser_ :: Parser String Char a -> String -> a
+runParser_ p s = case CP.runParser p s of
+  These a _ -> a
+  This a    -> a
+  That _    -> error "Uncaught parse failure"

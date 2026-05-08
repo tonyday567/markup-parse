@@ -1,6 +1,6 @@
 packages:
   markup-parse.cabal
+  ../circuits/circuits.cabal
+  ../circuits-parser/circuits-parser.cabal
 
 write-ghc-environment-files: always
-
-allow-newer: these:base
