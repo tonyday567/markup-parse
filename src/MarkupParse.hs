@@ -79,6 +79,20 @@ module MarkupParse
   )
 where
 
+import Circuit.Parser
+  ( Parser,
+    These (..),
+    captured,
+    char,
+    empty,
+    many,
+    satisfy,
+    skipWhile,
+    some,
+    string,
+    (<|>),
+  )
+import Circuit.Parser qualified as CP
 import Control.Applicative hiding (many, some, (<|>))
 import Control.Category ((>>>))
 import Control.DeepSeq
@@ -97,10 +111,6 @@ import Data.Maybe
 import Data.These
 import Data.Tree
 import GHC.Generics
-import Circuit.Parser
-  ( Parser, These (..), satisfy, char, string, many, some, (<|>), empty
-  , captured, skipWhile )
-import qualified Circuit.Parser as CP
 import Prelude hiding (replicate)
 
 -- $setup
@@ -207,7 +217,7 @@ type Warn a = These [MarkupWarning] a
 --
 -- State-threading parser over token lists with error/warning accumulation.
 -- Replaces the mpar StateThreader (which was in the removed FlatParse module).
-newtype TokenParser e a = TokenParser { runTP :: [Token] -> ([Token], These e a) }
+newtype TokenParser e a = TokenParser {runTP :: [Token] -> ([Token], These e a)}
 
 runTP' :: TokenParser e a -> [Token] -> ([Token], These e a)
 runTP' = runTP
@@ -619,12 +629,12 @@ gather :: Standard -> TokenParser [MarkupWarning] Markup
 gather s = TokenParser $ \ts ->
   let (Cursor finalSibs finalParents, warnings) =
         foldl' (\(c, xs) t -> incCursor s t c & second (maybeToList >>> (<> xs))) (Cursor [] [], []) ts
-  in case (finalSibs, finalParents, warnings) of
-       (sibs, [], []) -> ([], That (Markup (reverse sibs)))
-       ([], [], xs) -> ([], This xs)
-       (sibs, ps, xs) ->
-         let result = reverse $ foldl' (\ss' (p, ss) -> Node p (reverse ss') : ss) sibs ps
-         in ([], These (xs <> [UnclosedTag]) (Markup result))
+   in case (finalSibs, finalParents, warnings) of
+        (sibs, [], []) -> ([], That (Markup (reverse sibs)))
+        ([], [], xs) -> ([], This xs)
+        (sibs, ps, xs) ->
+          let result = reverse $ foldl' (\ss' (p, ss) -> Node p (reverse ss') : ss) sibs ps
+           in ([], These (xs <> [UnclosedTag]) (Markup result))
 
 -- | 'gather' but errors on warnings.
 gather_ :: Standard -> [Token] -> Markup
@@ -706,11 +716,11 @@ addCloseTags _ x xs = case xs of
 -- ============================================================================
 
 isWhitespace :: Char -> Bool
-isWhitespace ' '  = True
+isWhitespace ' ' = True
 isWhitespace '\n' = True
 isWhitespace '\t' = True
 isWhitespace '\r' = True
-isWhitespace _    = False
+isWhitespace _ = False
 
 isLatinLetter :: Char -> Bool
 isLatinLetter c = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
@@ -758,10 +768,12 @@ tokenHtmlP =
 -- XML name start char (production [4])
 isNameStartChar :: Char -> Bool
 isNameStartChar x =
-  isLatinLetter x || x == ':' || x == '_'
-  || (x >= '\xC0' && x <= '\xD6')
-  || (x >= '\xD8' && x <= '\xF6')
-  || (x >= '\xF8' && x <= '\xFF')
+  isLatinLetter x
+    || x == ':'
+    || x == '_'
+    || (x >= '\xC0' && x <= '\xD6')
+    || (x >= '\xD8' && x <= '\xF6')
+    || (x >= '\xF8' && x <= '\xFF')
 
 -- XML/HMTL name char
 isNameChar :: Char -> Bool
@@ -769,10 +781,12 @@ isNameChar x = not (isWhitespace x || x == '/' || x == '<' || x == '>')
 
 isNameCharXml :: Char -> Bool
 isNameCharXml x =
-  isLatinLetter x || Data.Char.isDigit x || x `elem` (":_-.·" :: String)
-  || (x >= '\xC0' && x <= '\xD6')
-  || (x >= '\xD8' && x <= '\xF6')
-  || (x >= '\xF8' && x <= '\xFF')
+  isLatinLetter x
+    || Data.Char.isDigit x
+    || x `elem` (":_-.·" :: String)
+    || (x >= '\xC0' && x <= '\xD6')
+    || (x >= '\xD8' && x <= '\xF6')
+    || (x >= '\xF8' && x <= '\xFF')
 
 isAttrName :: Char -> Bool
 isAttrName x = not (isWhitespace x || x == '/' || x == '>' || x == '=' || x == '<')
@@ -801,19 +815,31 @@ declXmlP_ :: Parser String Char Token
 declXmlP_ =
   let attr key = Attr (B.pack key) <$> (skipWhile isWhitespace *> string key *> eq_ *> wrappedQ)
       one x = [x]
-  in string "xml" *>
-     (Decl "xml" <$> ((:) <$> attr "version" <*> (one <$> attr "encoding")))
-       <* skipWhile isWhitespace <* string "?>"
+   in string "xml"
+        *> (Decl "xml" <$> ((:) <$> attr "version" <*> (one <$> attr "encoding")))
+        <* skipWhile isWhitespace
+        <* string "?>"
 
 doctypeXmlP_ :: Parser String Char Token
-doctypeXmlP_ = Doctype <$> (bs (string "DOCTYPE" *> skipWhile isWhitespace *> void nameXmlP
-  *> skipWhile isWhitespace *> many (satisfy (/= '>'))) <* char '>')
+doctypeXmlP_ =
+  Doctype
+    <$> ( bs
+            ( string "DOCTYPE"
+                *> skipWhile isWhitespace
+                *> void nameXmlP
+                *> skipWhile isWhitespace
+                *> many (satisfy (/= '>'))
+            )
+            <* char '>'
+        )
 
 startTagsXmlP_ :: Parser String Char Token
 startTagsXmlP_ =
-  OpenTag EmptyElemTag <$> (nameXmlP <* skipWhile isWhitespace <* string "/>")
+  OpenTag EmptyElemTag
+    <$> (nameXmlP <* skipWhile isWhitespace <* string "/>")
     <*> pure []
-    <|> OpenTag StartTag <$> (nameXmlP <* skipWhile isWhitespace <* string ">")
+      <|> OpenTag StartTag
+    <$> (nameXmlP <* skipWhile isWhitespace <* string ">")
     <*> many (skipWhile isWhitespace *> attrXmlP_)
 
 attrXmlP_ :: Parser String Char Attr
@@ -832,7 +858,7 @@ startTagsHtmlP_ =
   OpenTag StartTag
     <$> (nameHtmlP <* skipWhile isWhitespace)
     <*> (attrsHtmlP_ <* skipWhile isWhitespace <* string ">")
-    <|> OpenTag EmptyElemTag
+      <|> OpenTag EmptyElemTag
     <$> (nameHtmlP <* skipWhile isWhitespace)
     <*> (attrsHtmlP_ <* skipWhile isWhitespace <* string "/>")
 
@@ -848,8 +874,16 @@ attrsHtmlP_ :: Parser String Char [Attr]
 attrsHtmlP_ = many (skipWhile isWhitespace *> attrHtmlP_) <* skipWhile isWhitespace
 
 doctypeHtmlP_ :: Parser String Char Token
-doctypeHtmlP_ = Doctype <$> (bs (string "DOCTYPE" *> skipWhile isWhitespace *> void nameHtmlP
-  *> skipWhile isWhitespace) <* char '>')
+doctypeHtmlP_ =
+  Doctype
+    <$> ( bs
+            ( string "DOCTYPE"
+                *> skipWhile isWhitespace
+                *> void nameHtmlP
+                *> skipWhile isWhitespace
+            )
+            <* char '>'
+        )
 
 bogusCommentHtmlP_ :: Parser String Char Token
 bogusCommentHtmlP_ = Comment <$> bs (some (satisfy (/= '<')))
@@ -876,6 +910,7 @@ ws = satisfy isWhitespace
 -- | Alias for skip whitespace (backward compat with mpar)
 ws_ :: Parser String Char ()
 ws_ = skipWhile isWhitespace
+
 --
 -- >>> runParserWarn ws " x"
 -- These (ParserLeftover "x") ' '
@@ -905,18 +940,18 @@ runParserWarn :: Parser String Char a -> String -> These ParserWarning a
 runParserWarn p s = case CP.runParser p s of
   These a "" -> That a
   These a rest -> These (ParserLeftover (take 200 rest)) a
-  This a      -> That a
-  That _      -> This ParserUncaught
+  This a -> That a
+  That _ -> This ParserUncaught
 
 -- | Run a parser and return the remaining input and result as a tuple
 runParser :: Parser String Char a -> String -> (String, These () a)
 runParser p s = case CP.runParser p s of
   These a s' -> (s', These () a)
-  This a     -> ([], That a)
-  That s'    -> (s', This ())
+  This a -> ([], That a)
+  That s' -> (s', This ())
 
 runParser_ :: Parser String Char a -> String -> a
 runParser_ p s = case CP.runParser p s of
   These a _ -> a
-  This a    -> a
-  That _    -> error "Uncaught parse failure"
+  This a -> a
+  That _ -> error "Uncaught parse failure"
