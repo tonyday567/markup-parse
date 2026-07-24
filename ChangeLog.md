@@ -1,3 +1,16 @@
+0.3.0
+===
+
+- Re-absorbed the markup modules from chart-svg.
+- Split the monolithic `MarkupParse` module into named modules:
+  - `Data.Markup` — core data types.
+  - `Data.Markup.Parser` — parsing and tree operations.
+  - `Data.Markup.Render` — rendering.
+  - `Data.Markup.Warn` — warnings and warning helpers.
+- `MarkupParse` remains as a re-export root.
+- Fixed XML start-tag attribute parsing (attributes are now consumed before the
+  closing `>`).
+
 0.2.2
 ===
 
