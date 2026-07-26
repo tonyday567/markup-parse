@@ -8,7 +8,4 @@ packages:
   ../harpie-numhask/harpie-numhask.cabal
   ../process-stats/process-stats.cabal
 
-allow-newer:
-  tdigest:base
-
 write-ghc-environment-files: always
