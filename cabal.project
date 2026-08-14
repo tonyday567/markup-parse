@@ -3,7 +3,7 @@ packages:
   ../circuits/circuits.cabal
   ../circuits-parser/circuits-parser.cabal
   ../numhask/numhask.cabal
-  ../numhask-diff/numhask-diff.cabal
+  ../circuits-diff/circuits-diff.cabal
   ../harpie/harpie.cabal
   ../process-stats/process-stats.cabal
 
