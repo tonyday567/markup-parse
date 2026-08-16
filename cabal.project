@@ -4,7 +4,8 @@ packages:
   ../circuits-parser/circuits-parser.cabal
   ../numhask/numhask.cabal
   ../circuits-diff/circuits-diff.cabal
+  ../circuits-mat/circuits-mat.cabal
   ../harpie/harpie.cabal
-  ../process-stats/process-stats.cabal
+  ../circuits-stats/circuits-stats.cabal
 
 write-ghc-environment-files: always
