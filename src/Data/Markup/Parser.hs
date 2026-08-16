@@ -77,8 +77,6 @@ module Data.Markup.Parser
   )
 where
 
-import Control.Category ((>>>))
-import Control.Monad
 import Circuit.Parser
   ( Parser,
     capturedBS,
@@ -92,6 +90,8 @@ import Circuit.Parser
   )
 import Circuit.Parser qualified as CP
 import Circuit.Parser.Primitives (isLatinLetter)
+import Control.Category ((>>>))
+import Control.Monad
 import Data.Bifunctor
 import Data.Bool
 import Data.ByteString (ByteString)
