@@ -26,6 +26,8 @@ import Data.Tree
 
 -- $setup
 -- >>> :set -XOverloadedStrings
+-- >>> import Data.Markup
+-- >>> import Data.Tree
 
 -- | Escape a single character.
 escapeChar :: Char -> ByteString

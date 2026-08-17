@@ -109,6 +109,8 @@ import Data.Tree
 
 -- $setup
 -- >>> :set -XOverloadedStrings
+-- >>> import Data.Markup
+-- >>> import Data.Tree
 
 -- | Convert bytestrings to 'Markup'
 --
