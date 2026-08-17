@@ -79,10 +79,10 @@ library
     these >=1.1 && <1.3,
 
   exposed-modules:
-    Data.Markup,
-    Data.Markup.Parser,
-    Data.Markup.Render,
-    Data.Markup.Warn,
+    Data.Markup
+    Data.Markup.Parser
+    Data.Markup.Render
+    Data.Markup.Warn
     MarkupParse
 
 test-suite markup-parse-diff
@@ -92,9 +92,9 @@ test-suite markup-parse-diff
   main-is: markup-parse-diff.hs
   hs-source-dirs: app
   build-depends:
-    Diff >=1.0 && <1.1,
     base >=4.14 && <5,
     bytestring >=0.11.3 && <0.13,
+    Diff >=1.0 && <1.1,
     markup-parse,
     tasty >=1.2 && <1.6,
     tasty-golden >=2.3.1.1 && <2.4,
