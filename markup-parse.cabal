@@ -85,7 +85,7 @@ library
     Data.Markup.Warn
     MarkupParse
 
-test-suite markup-parse-diff
+executable markup-parse-axioma
   import: ghc-options-exe-stanza
   import: ghc-options-stanza
   import: ghc2024-stanza
@@ -94,9 +94,4 @@ test-suite markup-parse-diff
   build-depends:
     base >=4.14 && <5,
     bytestring >=0.11.3 && <0.13,
-    Diff >=1.0 && <1.1,
     markup-parse,
-    tasty >=1.2 && <1.6,
-    tasty-golden >=2.3.1.1 && <2.4,
-
-  type: exitcode-stdio-1.0

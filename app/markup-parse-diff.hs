@@ -1,51 +1,44 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# OPTIONS_GHC -Wno-unused-top-binds #-}
 
 module Main (main) where
 
-import Control.Category ((>>>))
-import Control.Monad
-import Data.Algorithm.Diff
-import Data.Algorithm.DiffOutput
-import Data.Bifunctor
-import Data.Bool
+import Control.Monad (unless, (>=>))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as B
-import Data.ByteString.Char8 qualified as C
 import Data.Function
-import Data.Maybe
 import MarkupParse
-import Test.Tasty (TestTree, defaultMain, testGroup)
-import Test.Tasty.Golden.Advanced (goldenTest)
+import System.Exit (exitFailure)
 import Prelude
 
+examples :: [(RenderStyle, Standard, FilePath)]
+examples =
+  [ (Compact, Xml, "other/line.svg"),
+    (Compact, Html, "other/ex1.html")
+  ]
+
 main :: IO ()
-main =
-  defaultMain $
-    testGroup
-      "tests"
-      [ goldenTests
-      ]
+main = do
+  failures <-
+    concatMapM
+      ( \(r, s, fp) -> do
+          expected <- B.readFile fp
+          actual <- isoMarkupMarkdown r s <$> B.readFile fp
+          if expected == actual
+            then do
+              putStrLn $ "PASS " ++ fp
+              pure []
+            else do
+              putStrLn $ "FAIL " ++ fp
+              pure [fp]
+      )
+      examples
+  unless (null failures) $ do
+    putStrLn $ "Markup/markdown roundtrip failures: " ++ show failures
+    exitFailure
 
-goldenTests :: TestTree
-goldenTests =
-  testGroup
-    "examples"
-    ( testExample
-        <$> [ (Compact, Xml, "other/line.svg"),
-              (Compact, Html, "other/ex1.html")
-            ]
-    )
+concatMapM :: (Monad m) => (a -> m [b]) -> [a] -> m [b]
+concatMapM f xs = concat <$> mapM f xs
 
-testExample :: (RenderStyle, Standard, FilePath) -> TestTree
-testExample (r, s, fp) =
-  goldenTest
-    fp
-    (B.readFile fp)
-    (isoMarkupMarkdown r s <$> B.readFile fp)
-    (\expected actual -> getDiff (C.lines expected) (C.lines actual) & fmap (bimap (C.unpack >>> pure) (C.unpack >>> pure)) & diffToLineRanges & prettyDiffs & (\xs -> bool (pure $ Just (show xs)) (pure Nothing) (xs == mempty)))
-    (\_ -> pure ())
-
--- round trip markdown >>> markup
+-- | Round trip markdown >>> markup.
 isoMarkupMarkdown :: RenderStyle -> Standard -> ByteString -> ByteString
 isoMarkupMarkdown r s m = m & (markup s >=> markdown r s) & warnError

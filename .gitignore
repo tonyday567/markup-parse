@@ -2,9 +2,7 @@
 /dist-newstyle/
 stack.yaml.lock
 **/.DS_Store
-cabal.project.local*
 /.hie/
 .ghc.environment.*
 /.hkgr/
 /checklist.org
-/cabal.project.local*
