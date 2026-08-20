@@ -72,7 +72,7 @@ library
   hs-source-dirs: src
   build-depends:
     base >=4.14 && <5,
-    bytestring >=0.11.3 && <0.13,
+    bytestring >=0.11 && <0.13,
     circuits-parser,
     containers >=0.6 && <0.9,
     deepseq >=1.4 && <1.6,
@@ -93,5 +93,5 @@ executable markup-parse-axioma
   hs-source-dirs: app
   build-depends:
     base >=4.14 && <5,
-    bytestring >=0.11.3 && <0.13,
+    bytestring >=0.11 && <0.13,
     markup-parse,
