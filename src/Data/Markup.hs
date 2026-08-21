@@ -17,7 +17,6 @@ module Data.Markup
   )
 where
 
-import Control.DeepSeq
 import Data.ByteString (ByteString)
 import Data.Data
 import Data.These
@@ -32,8 +31,6 @@ import GHC.Generics
 data Standard = Html | Xml
   deriving stock (Eq, Ord, Show, Generic, Data)
 
-instance NFData Standard
-
 -- | Name of token
 type NameTag = ByteString
 
@@ -47,16 +44,12 @@ type AttrValue = ByteString
 data OpenTagType = StartTag | EmptyElemTag
   deriving (Eq, Ord, Show, Generic, Data)
 
-instance NFData OpenTagType
-
 -- | An attribute of a tag
 --
 -- In parsing, boolean attributes, which are not required to have a value in HTML,
 -- will be set a value of "", which is ok. But this will then be rendered.
 data Attr = Attr {attrName :: !AttrName, attrValue :: !AttrValue}
   deriving (Eq, Ord, Show, Generic, Data)
-
-instance NFData Attr
 
 -- | A Markup token. The term is borrowed from <https://www.w3.org/html/wg/spec/tokenization.html#tokenization HTML> standards but is used across 'Html' and 'Xml' in this library.
 --
@@ -82,22 +75,16 @@ data Token
     Doctype !ByteString
   deriving (Eq, Ord, Show, Generic, Data)
 
-instance NFData Token
-
 -- | A list of 'Element's or 'Tree' 'Token's
 newtype Markup = Markup {elements :: [Element]}
   deriving stock (Eq, Ord, Show, Generic, Data)
   deriving newtype (Semigroup, Monoid)
-
-instance NFData Markup
 
 -- | Most functions return a 'Markup' rather than an 'Element' because it is often more ergonomic to use the free monoid (aka a list) in preference to returning a 'Maybe' 'Element' (say).
 type Element = Tree Token
 
 -- | @Indented 0@ puts newlines in between the tags.
 data RenderStyle = Compact | Indented Int deriving (Eq, Ord, Show, Read, Generic, Data)
-
-instance NFData RenderStyle
 
 -- | TokenParser: semantic phase parser operating on token streams
 --

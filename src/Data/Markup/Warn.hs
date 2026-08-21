@@ -14,7 +14,6 @@ module Data.Markup.Warn
 where
 
 import Control.Category ((>>>))
-import Control.DeepSeq
 import Data.Bifunctor
 import Data.Bool
 import Data.Data
@@ -29,8 +28,6 @@ data ParserWarning
   | ParserError String
   | ParserUncaught
   deriving (Eq, Ord, Show, Generic, Data)
-
-instance NFData ParserWarning
 
 -- | markup-parse generally tries to continue on parse errors, and return what has/can still be parsed, together with any warnings.
 data MarkupWarning
@@ -54,8 +51,6 @@ data MarkupWarning
     BadDecl
   | MarkupParser ParserWarning
   deriving (Eq, Ord, Show, Generic, Data)
-
-instance NFData MarkupWarning
 
 -- | A type synonym for the common returning type of many functions. A common computation pipeline is to take advantage of the 'These' Monad instance eg
 --
