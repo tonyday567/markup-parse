@@ -6,3 +6,8 @@ stack.yaml.lock
 .ghc.environment.*
 /.hkgr/
 /checklist.org
+dist-newstyle/
+*.ghc.environment.*
+.stack-work/
+.DS_Store
+cabal.project.local
